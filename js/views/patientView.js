@@ -20,7 +20,7 @@ export function renderPatient() {
         <label class="inline-field">Starting point
           <select id="patientStart">${mapService.startingPoints.map((point, index) => `<option value="${index}">${point.name}</option>`).join("")}</select>
         </label>
-        <span class="traffic-note">Waze-style route scoring and rerouting are modeled by CareRoute; Waze has no general public embedded routing API/SDK.</span>
+        <span class="traffic-note">OSRM receives origin and destination coordinates only; do not use patient-identifying locations. Offline road-grid remains available for demos.</span>
       </div>
       <div class="map-layout">
         <div>
@@ -81,7 +81,7 @@ export function initPatient(app) {
     routePreview.innerHTML = `
       <div class="panel-body">
         ${diversion ? `<div class="diversion-warning"><strong>Facility is Full / Diverting.</strong> ${closest ? `Nearest accepting alternative: ${closest.name} (${mapService.route(start, closest).primary.eta} min).` : "No accepting alternatives are listed."}</div>` : ""}
-        <div class="session-row"><div><strong>Route to ${selected.name}</strong><small>${route.scenario.label} · route guidance is a demonstration</small></div><span class="status-badge ${diversion ? "full" : "available"}">${diversion ? "Check alternatives" : "Route ready"}</span></div>
+        <div class="session-row"><div><strong>Route to ${selected.name}</strong><small>${route.source === "OSRM" ? "OSRM street route" : "Offline Valenzuela road-grid estimate"} · ${route.scenario.label}</small></div><span class="status-badge ${diversion ? "full" : "available"}">${diversion ? "Check alternatives" : "Route ready"}</span></div>
         <div class="grid-3" style="margin-top:8px"><div class="metric"><span>Road distance</span><strong>${route.primary.distanceKm.toFixed(1)} km</strong></div><div class="metric"><span>ETA</span><strong>${route.primary.eta} min</strong></div><div class="metric"><span>Road speed</span><strong>${route.primary.speedKmh} km/h</strong></div></div>
         <ol class="step-list">${route.primary.steps.slice(0, 3).map((step) => `<li>${step.instruction} · ${step.distanceKm.toFixed(1)} km</li>`).join("")}</ol>
       </div>`;

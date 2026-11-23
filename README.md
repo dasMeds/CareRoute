@@ -41,7 +41,7 @@ Serve the directory over HTTP (ES modules do not run from `file://`):
 python -m http.server 4173
 ```
 
-Open `http://localhost:4173`. VS Code Live Server, `npx serve .`, or XAMPP static hosting from `htdocs` also work. There are no external CSS or icon CDNs.
+Open `http://localhost:4173`. VS Code Live Server, `npx serve .`, or XAMPP static hosting from `htdocs` also work. Leaflet's library and stylesheet are loaded from unpkg when online; the app's clinical UI styles and icons remain local.
 
 The file paths in the directory tree are all included in this repository; load `index.html` from the served project root.
 
@@ -51,15 +51,13 @@ Hospital capacity, triage submissions, transport status, and access audit entrie
 
 ## Navigation and maps
 
-The navigation panel embeds route previews in the patient capacity view and ambulance dispatch workflow. It supports the PLV Maysan Campus, Karuhatan, Malinta, Marulas, and Malanday starting points, browser GPS (permission and Valenzuela coverage permitting), facility pins, traffic scenarios, a recommended and alternate corridor, turn-by-turn instructions, a moving route marker, pause/resume, step-forward, reset, and simulated transport stages.
+The map uses Leaflet.js with CARTO Positron tiles and OpenStreetMap tile backup, centered on Valenzuela City. Facility markers reflect the latest locally stored ER capacity status. Routing requests use the public OSRM driving endpoint for street-following GeoJSON geometry, alternatives when available, and turn-by-turn steps. These public demonstration services require no API key or billing account; they have usage policies and no availability guarantee, and do not provide live traffic data. Online tile requests expose the requester's IP and map area to the tile providers; OSRM receives only the origin and destination coordinates. No patient name, identifier, or clinical data is included in map requests. Avoid using patient-identifying locations with these public services.
 
-CareRoute calculates deterministic routes across a Valenzuela road-corridor graph and guards numeric inputs/results so distance, ETA, speed, progress, and map coordinates use finite values. The simulation's distances and travel estimates are approximations, not road-verified or emergency dispatch directions.
+Choose **Auto**, **Free Map API**, or **Offline Fallback** in the header. Auto and Free Map API use Leaflet and OSRM while online. If the browser is offline or Leaflet, tiles, or OSRM are unavailable, CareRoute switches to its self-contained Valenzuela road-grid canvas. The grid preserves the PLV Maysan Campus, Karuhatan, Malinta, Marulas, and Malanday starting points, facility pins, simulated traffic corridors, alternate-route preview, and moving route marker for a dependable demonstration. Offline distance, ETA, traffic status, and route geometry are local estimates, not road-verified directions.
 
-For Google Maps, set `googleMapsApiKey` in `js/config.js`, or define `window.CAREROUTE_CONFIG = { googleMapsApiKey: "YOUR_RESTRICTED_KEY" }` before `js/app.js` loads. The key is public browser configuration; restrict it by origin and enabled APIs, and do not commit an unrestricted credential. When online with a working key, the prototype loads Maps JavaScript, the native Traffic Layer, facility markers, and Google Directions results. It falls back to its vector map when the key is absent, network is offline, API loading fails, or Offline Fallback is selected. Auto mode chooses Google Maps only when a configured key and API are available.
+The ambulance workflow also supports browser GPS (permission and Valenzuela coverage permitting), capacity-based diversion recommendations, traffic scenario overlays, turn-by-turn guidance, pause/resume, step-forward, reset, and simulated transport stages. Traffic colors represent the selected local demonstration scenario; OSRM's public route service does not provide live traffic conditions.
 
-**Waze does not offer a general public embedded routing API/SDK.** CareRoute therefore implements Waze-style congestion scoring, traffic-colored corridors, turn-by-turn cues, alternate route comparison, and dynamic diversion/rerouting in its own routing engine. External Google Maps and Waze links are provided as optional handoff links; they are not embedded Waze services.
-
-The offline high-DPI canvas draws Valenzuela corridor geometry, labeled major roads, local traffic overlays, status-coded hospital pins, the recommended and dashed alternate route, origin, and a live simulated vehicle marker. This self-contained map uses no remote tiles. Its corridor geometry is a prototype model rather than a survey-grade GIS map.
+Map tiles are attributed to OpenStreetMap and CARTO. The optional Google Maps and Waze buttons in the rescue workflow open external navigation pages; neither service is embedded or required for CareRoute's map or routing.
 
 ## Security, privacy, and regulatory alignment
 

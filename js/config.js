@@ -1,5 +1,4 @@
 export const DEFAULT_CONFIG = Object.freeze({
-  googleMapsApiKey: "",
   valenzuelaCenter: { lat: 14.7011, lng: 120.9830 },
   defaultStartingPoint: "Pamantasan ng Lungsod ng Valenzuela - Maysan Campus",
   refreshIntervalMs: 15000,

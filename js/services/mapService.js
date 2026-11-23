@@ -1,4 +1,3 @@
-import { CONFIG } from "../config.js";
 import { storageService } from "./storageService.js";
 
 const STARTING_POINTS = [
@@ -159,6 +158,75 @@ function makeRoute(start, destination, scenario, excludedEdge = "") {
   };
 }
 
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[character]);
+}
+
+function maneuverInstruction(type, modifier, road) {
+  const direction = modifier ? ` ${modifier.replace(/-/g, " ")}` : "";
+  const location = road ? ` onto ${road}` : "";
+  if (type === "depart") return `Head${direction}${location}`;
+  if (type === "arrive") return "Arrive at your destination";
+  if (type === "turn") return `Turn${direction}${location}`;
+  if (type === "merge") return `Merge${direction}${location}`;
+  if (type === "on ramp") return `Take the ramp${direction}${location}`;
+  if (type === "off ramp") return `Take the exit${direction}${location}`;
+  if (type === "roundabout" || type === "rotary") return `Enter the roundabout${direction}${location}`;
+  if (type === "fork") return `Keep${direction}${location}`;
+  if (type === "end of road") return `At the end of the road, turn${direction}${location}`;
+  if (type === "new name") return `Continue${location}`;
+  return road ? `Continue on ${road}` : "Continue on the road";
+}
+
+function normalizeOsrmRoute(route) {
+  const points = (route.geometry?.coordinates || [])
+    .filter((coordinate) => Array.isArray(coordinate) && Number.isFinite(Number(coordinate[0])) && Number.isFinite(Number(coordinate[1])))
+    .map(([lng, lat]) => ({ lat: Number(lat), lng: Number(lng) }));
+  const steps = (route.legs || []).flatMap((leg) => (leg.steps || []).map((step) => {
+    const type = String(step.maneuver?.type || "continue");
+    const modifier = String(step.maneuver?.modifier || "");
+    const road = String(step.name || "Unnamed road");
+    const meters = Math.max(0, finite(step.distance, 0));
+    const geometry = (step.geometry?.coordinates || [])
+      .filter((coordinate) => Array.isArray(coordinate) && Number.isFinite(Number(coordinate[0])) && Number.isFinite(Number(coordinate[1])))
+      .map(([lng, lat]) => ({ lat: Number(lat), lng: Number(lng) }));
+    return {
+      maneuver: type === "turn" && modifier ? `turn-${modifier}` : type,
+      maneuverType: type,
+      maneuverModifier: modifier,
+      instruction: maneuverInstruction(type, modifier, road),
+      road,
+      distanceKm: Number((meters / 1000).toFixed(2)),
+      points: geometry
+    };
+  }));
+  const distanceKm = Math.max(0.1, finite(route.distance, 0) / 1000);
+  const eta = Math.max(1, Math.round(Math.max(0, finite(route.duration, 0)) / 60));
+  const speedKmh = Number((distanceKm / (eta / 60)).toFixed(1));
+  return {
+    points: points.length ? points : [],
+    segments: steps.map((step) => ({
+      road: step.road,
+      distanceKm: step.distanceKm,
+      points: step.points
+    })),
+    distanceKm: Number(distanceKm.toFixed(2)),
+    eta,
+    speedKmh: Number.isFinite(speedKmh) ? speedKmh : 0,
+    steps: steps.length ? steps : [{
+      maneuver: "arrive",
+      maneuverType: "arrive",
+      maneuverModifier: "",
+      instruction: "Arrive at your destination",
+      road: "Destination",
+      distanceKm: 0,
+      points: []
+    }]
+  };
+}
+
 export const mapService = {
   startingPoints: STARTING_POINTS,
   scenarios: TRAFFIC_SCENARIOS,
@@ -168,171 +236,241 @@ export const mapService = {
   animation: null,
   currentNavigation: null,
   markerListener: null,
-  googleLoader: null,
+  leafletLoader: null,
+  forceOffline: false,
   effectiveMode() {
-    if (this.mode === "offline") return "offline";
-    if (this.mode === "google" && CONFIG.googleMapsApiKey && navigator.onLine) return "google";
-    return CONFIG.googleMapsApiKey && navigator.onLine && this.googleReady ? "google" : "offline";
+    return this.mode === "offline" || !navigator.onLine || this.forceOffline ? "offline" : "free";
   },
-  async loadGoogle() {
-    if (!CONFIG.googleMapsApiKey || !navigator.onLine) return false;
-    if (window.google?.maps) return true;
-    if (this.googleLoader) return this.googleLoader;
-    this.googleLoader = new Promise((resolve) => {
+  async loadLeaflet() {
+    if (window.L?.map) return true;
+    if (!navigator.onLine) return false;
+    if (this.leafletLoader) return this.leafletLoader;
+    this.leafletLoader = new Promise((resolve) => {
+      const finish = (loaded) => {
+        clearTimeout(timeout);
+        resolve(loaded);
+      };
+      const timeout = setTimeout(() => finish(false), 8000);
+      const stylesheet = document.createElement("link");
+      stylesheet.rel = "stylesheet";
+      stylesheet.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      stylesheet.onerror = () => {
+        stylesheet.remove();
+        finish(false);
+      };
+      document.head.appendChild(stylesheet);
       const script = document.createElement("script");
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(CONFIG.googleMapsApiKey)}&libraries=geometry`;
+      script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
       script.async = true;
-      script.onload = () => resolve(Boolean(window.google?.maps));
-      script.onerror = () => resolve(false);
+      script.onload = () => finish(Boolean(window.L?.map));
+      script.onerror = () => finish(false);
       document.head.appendChild(script);
     });
-    const loaded = await this.googleLoader;
-    this.googleReady = loaded;
+    const loaded = await this.leafletLoader;
+    if (!loaded) this.leafletLoader = null;
     return loaded;
+  },
+  async requestOsrmRoute(start, destination) {
+    const coordinates = `${finite(start.lng, STARTING_POINTS[0].lng)},${finite(start.lat, STARTING_POINTS[0].lat)};${finite(destination.lng, 120.983)},${finite(destination.lat, 14.7011)}`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=true`, {
+        signal: controller.signal,
+        headers: { Accept: "application/json" }
+      });
+      if (!response.ok) throw new Error(`OSRM returned HTTP ${response.status}`);
+      const payload = await response.json();
+      if (payload.code !== "Ok" || !Array.isArray(payload.routes) || !payload.routes.length) {
+        throw new Error(`OSRM route unavailable: ${payload.code || "no routes"}`);
+      }
+      const routes = payload.routes.map(normalizeOsrmRoute);
+      if (routes[0].points.length < 2) throw new Error("OSRM returned no route geometry");
+      return routes;
+    } finally {
+      clearTimeout(timeout);
+    }
+  },
+  switchToOffline() {
+    if (this.forceOffline) return;
+    this.forceOffline = true;
+    if (this.currentNavigation) this.currentNavigation.fallbackReason = "Map tile services unavailable";
+    if (this.container?.isConnected) this.renderOffline(this.container, this.options || {});
   },
   async render(container, options = {}) {
     this.container = container;
     this.options = options;
     if (this.animation) cancelAnimationFrame(this.animation);
     this.animation = null;
-    if (this.mode !== "offline" && CONFIG.googleMapsApiKey && navigator.onLine) await this.loadGoogle();
-    if (this.effectiveMode() === "google") this.renderGoogle(container, options);
-    else this.renderOffline(container, options);
+    this.canvas = null;
+    if (this.leafletMap) {
+      this.leafletMap.remove();
+      this.leafletMap = null;
+    }
+    if (this.effectiveMode() === "free" && await this.loadLeaflet()) {
+      this.renderLeaflet(container, options);
+      return;
+    }
+    if (this.mode !== "offline" && navigator.onLine && this.effectiveMode() === "free") this.forceOffline = true;
+    if (this.forceOffline && this.currentNavigation && !this.currentNavigation.fallbackReason) {
+      this.currentNavigation.fallbackReason = "Leaflet could not be loaded";
+    }
+    this.renderOffline(container, options);
   },
   route(start, destination, scenarioKey = this.trafficScenario) {
     const safeStart = { lat: finite(start?.lat, STARTING_POINTS[0].lat), lng: finite(start?.lng, STARTING_POINTS[0].lng) };
     const hospital = destination || { lat: 14.7011, lng: 120.983, available: 1 };
     const scenario = TRAFFIC_SCENARIOS[scenarioKey] || TRAFFIC_SCENARIOS.clear;
     const primary = makeRoute(safeStart, hospital, scenario);
-    let alternative = null;
-    if (primary.segments.length > 1) {
-      const worst = primary.segments.reduce((best, segment) => segment.speedKmh < best.speedKmh ? segment : best);
-      const edge = EDGES.find(([a, b, road]) => road === worst.road &&
-        primary.points.some((point) => distanceKm(point, NODES[a]) < 0.02) &&
-        primary.points.some((point) => distanceKm(point, NODES[b]) < 0.02));
-      if (edge) {
-        const detour = makeRoute(safeStart, hospital, TRAFFIC_SCENARIOS.clear, edge.slice(0, 2).sort().join(":"));
-        if (detour.distanceKm > 0 && detour.points.length > 2) alternative = detour;
-      }
-    }
-    if (!alternative) alternative = makeRoute(safeStart, hospital, { label: scenario.label, roads: { ...scenario.roads, "Maysan Rd": 1.35 } });
+    const alternative = makeRoute(safeStart, hospital, { label: scenario.label, roads: { ...scenario.roads, "Maysan Rd": 1.35 } });
     const recommended = hospital.available > 0 && hospital.status !== "Full / Diverting";
     return { primary, alternative, recommended, scenario };
   },
   async calculateRoute(start, destination) {
-    const result = this.route(start, destination);
-    if (this.effectiveMode() === "google" && window.google?.maps && destination) {
-      const service = new google.maps.DirectionsService();
-      await new Promise((resolve) => {
-        service.route({
-          origin: { lat: finite(start?.lat, STARTING_POINTS[0].lat), lng: finite(start?.lng, STARTING_POINTS[0].lng) },
-          destination: { lat: finite(destination.lat, 14.7011), lng: finite(destination.lng, 120.983) },
-          travelMode: google.maps.TravelMode.DRIVING,
-          drivingOptions: { departureTime: new Date(), trafficModel: "bestguess" }
-        }, (response, status) => {
-          if (status === "OK" && response?.routes?.[0]?.legs?.[0]) {
-            const leg = response.routes[0].legs[0];
-            const meters = finite(leg.distance?.value, result.primary.distanceKm * 1000);
-            const seconds = finite(leg.duration_in_traffic?.value, finite(leg.duration?.value, result.primary.eta * 60));
-            result.primary.distanceKm = Number((meters / 1000).toFixed(2));
-            result.primary.eta = Math.max(1, Math.round(seconds / 60));
-            result.primary.speedKmh = Number((result.primary.distanceKm / (result.primary.eta / 60)).toFixed(1));
-            const routePoints = [];
-            leg.steps.forEach((step) => {
-              const startPoint = step.start_location;
-              const endPoint = step.end_location;
-              if (startPoint) routePoints.push({ lat: finite(startPoint.lat(), 14.7011), lng: finite(startPoint.lng(), 120.983) });
-              if (endPoint) routePoints.push({ lat: finite(endPoint.lat(), 14.7011), lng: finite(endPoint.lng(), 120.983) });
-            });
-            if (routePoints.length) result.primary.points = routePoints;
-            result.primary.steps = leg.steps.map((step) => ({
-              maneuver: step.maneuver || "straight",
-              instruction: String(step.instructions || "Continue to destination").replace(/<[^>]*>/g, ""),
-              road: step.distance?.text || "Road",
-              distanceKm: Number((finite(step.distance?.value, 0) / 1000).toFixed(2))
-            }));
-          }
-          resolve();
-        });
-      });
+    if (this.progressAnimation) cancelAnimationFrame(this.progressAnimation);
+    this.progressAnimation = null;
+    let result = this.route(start, destination);
+    const safeStart = { lat: finite(start?.lat, STARTING_POINTS[0].lat), lng: finite(start?.lng, STARTING_POINTS[0].lng) };
+    if (this.effectiveMode() === "free" && destination) {
+      try {
+        if (!await this.loadLeaflet()) throw new Error("Leaflet could not be loaded");
+        const routes = await this.requestOsrmRoute(safeStart, destination);
+        result = {
+          ...result,
+          primary: routes[0],
+          alternative: routes[1] || null,
+          source: "OSRM"
+        };
+      } catch (error) {
+        this.forceOffline = true;
+        result.source = "offline";
+        result.fallbackReason = error.name === "AbortError" ? "OSRM request timed out" : error.message;
+      }
+    } else {
+      result.source = "offline";
     }
-    this.currentNavigation = { ...result, start, destination, progress: 0, step: 0 };
+    this.visualProgress = 0;
+    this.currentNavigation = { ...result, start: safeStart, destination, progress: 0, step: 0 };
     return result;
   },
-  renderGoogle(container, options) {
-    container.innerHTML = "";
-    this.googleMap = new google.maps.Map(container, {
-      center: CONFIG.valenzuelaCenter, zoom: 13, mapTypeControl: false, streetViewControl: false
+  renderLeaflet(container, options = {}) {
+    const L = window.L;
+    this.canvas = null;
+    container.innerHTML = `<div class="leaflet-map" role="application" aria-label="Valenzuela City street map"></div>
+      <div class="map-overlay offline-badge">OPENSTREETMAP · CARTO POSITRON · OSRM</div>
+      ${this.trafficEnabled ? '<div class="traffic-key"><span><i class="traffic-dot smooth"></i>Smooth</span><span><i class="traffic-dot moderate"></i>Moderate</span><span><i class="traffic-dot heavy"></i>Heavy</span></div>' : ""}`;
+    const mapElement = container.querySelector(".leaflet-map");
+    this.leafletMap = L.map(mapElement, { scrollWheelZoom: true }).setView([14.7011, 120.9830], 13);
+    const activeMap = this.leafletMap;
+    this.vehicleMarker = null;
+    this.visualProgress = this.visualProgress ?? this.currentNavigation?.progress ?? 0;
+    this.leafletTileFailures = 0;
+    const carto = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+      subdomains: "abcd",
+      maxZoom: 20,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
     });
-    this.googleTraffic = new google.maps.TrafficLayer();
-    this.googleTraffic.setMap(this.trafficEnabled ? this.googleMap : null);
-    this.googleSegmentLines = EDGES.map(([a, b, road]) => {
-      const factor = finite((TRAFFIC_SCENARIOS[this.trafficScenario] || TRAFFIC_SCENARIOS.clear).roads[road], 1);
-      return new google.maps.Polyline({
-        map: this.googleMap,
-        path: [NODES[a], NODES[b]],
-        strokeColor: factor > 1.45 ? "#EF4444" : factor > 1.1 ? "#F59E0B" : "#10B981",
-        strokeOpacity: this.trafficEnabled ? 0.8 : 0,
-        strokeWeight: 3
+    const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    });
+    let usingOsmBackup = false;
+    carto.on("tileerror", () => {
+      if (usingOsmBackup || this.leafletMap !== activeMap) return;
+      usingOsmBackup = true;
+      carto.remove();
+      this.leafletTileFailures = 0;
+      osm.on("tileerror", () => {
+        if (this.leafletMap !== activeMap) return;
+        this.leafletTileFailures += 1;
+        if (this.leafletTileFailures >= 3) this.switchToOffline();
       });
+      osm.addTo(activeMap);
     });
-    this.googleMarkers = [];
-    storageService.getHospitals().forEach((hospital) => {
-      const marker = new google.maps.Marker({
-        map: this.googleMap,
-        position: { lat: hospital.lat, lng: hospital.lng },
-        title: `${hospital.name} - ${hospital.status}`,
-        icon: { path: google.maps.SymbolPath.CIRCLE, scale: 9, fillColor: statusColor(hospital.status), fillOpacity: 1, strokeColor: "#FFFFFF", strokeWeight: 2 }
-      });
-      marker.addListener("click", () => container.dispatchEvent(new CustomEvent("hospital:select", { detail: hospital })));
-      this.googleMarkers.push(marker);
+    carto.addTo(this.leafletMap);
+    const hospitals = storageService.getHospitals();
+    hospitals.forEach((hospital) => {
+      const color = statusColor(hospital.status);
+      const marker = L.marker([finite(hospital.lat, 14.7011), finite(hospital.lng, 120.983)], {
+        icon: L.divIcon({
+          className: "hospital-marker",
+          html: `<span class="hospital-marker-pin" style="--marker-color:${color}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3h4v7h7v4h-7v7h-4v-7H3v-4h7z"/></svg></span>`,
+          iconSize: [32, 38],
+          iconAnchor: [16, 36],
+          popupAnchor: [0, -34]
+        }),
+        title: hospital.name,
+        alt: `${hospital.name}, ${hospital.status}`
+      }).bindPopup(`<strong>${escapeHTML(hospital.name)}</strong><br>${escapeHTML(hospital.status)} · ${finite(hospital.available, 0)}/${finite(hospital.total, 0)} beds`);
+      marker.on("click", () => container.dispatchEvent(new CustomEvent("hospital:select", { detail: hospital })));
+      marker.addTo(this.leafletMap);
     });
-    const badge = document.createElement("div");
-    badge.className = "map-overlay offline-badge";
-    badge.textContent = "GOOGLE MAPS · Waze-style scoring by CareRoute";
-    container.appendChild(badge);
-    this.drawGoogleRoute(options);
+    this.leafletRouteLayers = [];
+    this.drawLeafletRoute();
+    setTimeout(() => {
+      if (this.leafletMap === activeMap && this.leafletTileFailures >= 3) this.switchToOffline();
+    }, 12000);
   },
-  drawGoogleRoute(options) {
-    if (!window.google?.maps || !this.googleMap) return;
-    if (this.googlePolylines) this.googlePolylines.forEach((line) => line.setMap(null));
+  drawLeafletRoute() {
+    const L = window.L;
+    const map = this.leafletMap;
+    if (!L || !map) return;
+    this.leafletRouteLayers.forEach((layer) => layer.remove());
+    this.leafletRouteLayers = [];
     const result = this.currentNavigation;
-    this.googlePolylines = [];
-    if (result?.primary) {
-      const line = new google.maps.Polyline({
-        path: result.primary.points.map((p) => ({ lat: p.lat, lng: p.lng })),
-        map: this.googleMap, strokeColor: "#0284C7", strokeOpacity: 0.95, strokeWeight: 6
-      });
-      this.googlePolylines.push(line);
+    const addLine = (points, options) => {
+      if (points?.length < 2) return null;
+      const line = L.polyline(points.map((point) => [point.lat, point.lng]), options).addTo(map);
+      this.leafletRouteLayers.push(line);
+      return line;
+    };
+    if (result?.alternative?.points?.length > 1) {
+      addLine(result.alternative.points, { color: "#F59E0B", weight: 5, opacity: 0.75, dashArray: "9 8" });
     }
-    if (result?.alternative) {
-      const line = new google.maps.Polyline({
-        path: result.alternative.points.map((p) => ({ lat: p.lat, lng: p.lng })),
-        map: this.googleMap, strokeColor: "#F59E0B", strokeOpacity: 0.8, strokeWeight: 4, icons: [{ icon: { path: "M 0,-1 0,1", strokeOpacity: 1, scale: 3 }, offset: "0", repeat: "12px" }]
-      });
-      this.googlePolylines.push(line);
+    const route = result?.primary;
+    if (route?.points?.length > 1) {
+      addLine(route.points, { color: "#0284C7", weight: 8, opacity: 0.72 });
+      if (this.trafficEnabled && result.source === "OSRM") {
+        route.steps.forEach((step) => {
+          if (step.points?.length < 2) return;
+          const factor = finite((TRAFFIC_SCENARIOS[this.trafficScenario] || TRAFFIC_SCENARIOS.clear).roads[step.road], 1);
+          const color = factor > 1.45 ? "#EF4444" : factor > 1.1 ? "#F59E0B" : "#10B981";
+          addLine(step.points, { color, weight: 4, opacity: 0.95 });
+        });
+      }
+      const bounds = L.latLngBounds(route.points.map((point) => [point.lat, point.lng]));
+      if (bounds.isValid()) map.fitBounds(bounds.pad(0.14), { maxZoom: 15 });
     }
-    if (result?.primary?.points?.length) {
-      const origin = result.primary.points[0];
-      this.originMarker?.setMap(null);
-      this.originMarker = new google.maps.Marker({ map: this.googleMap, position: origin, label: "A", title: "Starting point" });
+    const start = route?.points?.[0] || result?.start || this.options?.start;
+    if (start) {
+      const origin = L.circleMarker([start.lat, start.lng], {
+        radius: 7, color: "#FFFFFF", weight: 2, fillColor: "#0F172A", fillOpacity: 1
+      }).bindTooltip("Starting point", { direction: "top" }).addTo(map);
+      this.leafletRouteLayers.push(origin);
     }
+    this.updateLeafletVehicle();
   },
   renderOffline(container, options = {}) {
+    if (this.leafletMap) {
+      this.leafletMap.remove();
+      this.leafletMap = null;
+    }
+    const reason = this.currentNavigation?.fallbackReason;
     container.innerHTML = `<canvas class="offline-canvas" aria-label="Valenzuela City navigation map"></canvas>
-      <div class="map-overlay offline-badge">OFFLINE VECTOR · Waze-style traffic & rerouting by CareRoute</div>
+      <div class="map-overlay offline-badge">OFFLINE FALLBACK · VALENZUELA ROAD GRID${reason ? `<small>${escapeHTML(reason)}</small>` : ""}</div>
       ${this.trafficEnabled ? '<div class="traffic-key"><span><i class="traffic-dot smooth"></i>Smooth</span><span><i class="traffic-dot moderate"></i>Moderate</span><span><i class="traffic-dot heavy"></i>Heavy</span></div>' : ""}`;
     const canvas = container.querySelector("canvas");
     this.canvas = canvas;
+    this.visualProgress = this.visualProgress ?? this.currentNavigation?.progress ?? 0;
     this.drawCanvas(options);
     if (this.markerListener) canvas.removeEventListener("click", this.markerListener);
     this.markerListener = (event) => {
       const rect = canvas.getBoundingClientRect();
-      const x = (event.clientX - rect.left) / rect.width * canvas.width;
-      const y = (event.clientY - rect.top) / rect.height * canvas.height;
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
       const hospital = storageService.getHospitals().find((item) => {
         const point = this.project(item);
-        return Math.hypot(point.x - x, point.y - y) < 22 * canvas.width / 900;
+        return Math.hypot(point.x - x, point.y - y) < 22 * (canvas.getBoundingClientRect().width || 900) / 900;
       });
       if (hospital) container.dispatchEvent(new CustomEvent("hospital:select", { detail: hospital }));
     };
@@ -340,8 +478,9 @@ export const mapService = {
   },
   project(point) {
     const canvas = this.canvas;
-    const width = canvas?.width || 900;
-    const height = canvas?.height || 540;
+    const bounds = canvas?.getBoundingClientRect();
+    const width = bounds?.width || 900;
+    const height = bounds?.height || 540;
     const lng = finite(point?.lng, 120.983);
     const lat = finite(point?.lat, 14.7011);
     return {
@@ -368,6 +507,14 @@ export const mapService = {
     });
     ctx.fillStyle = "#E8F0F3";
     ctx.fillRect(0, 0, width, height);
+    ctx.strokeStyle = "rgba(255,255,255,.82)";
+    ctx.lineWidth = 3;
+    for (let x = 28; x < width; x += 74) {
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 8, height); ctx.stroke();
+    }
+    for (let y = 24; y < height; y += 62) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y + 5); ctx.stroke();
+    }
     ctx.fillStyle = "#D5E6E9";
     for (let row = 0; row < 6; row++) {
       for (let col = 0; col < 9; col++) {
@@ -395,9 +542,16 @@ export const mapService = {
         ctx.strokeStyle = factor > 1.45 ? "#EF4444" : factor > 1.1 ? "#F59E0B" : "#10B981";
         ctx.stroke();
       }
-      const midX = (p1.x + p2.x) / 2; const midY = (p1.y + p2.y) / 2;
-      ctx.fillStyle = "#475569"; ctx.font = "10px system-ui"; ctx.fillText(road, midX + 4, midY - 3);
     });
+    ctx.fillStyle = "#475569";
+    ctx.font = "bold 10px system-ui";
+    [
+      ["NLEX", .17, .2],
+      ["Paso de Blas", .31, .4],
+      ["Maysan Road", .57, .25],
+      ["MacArthur Highway", .76, .58],
+      ["Gov. I. Santiago St.", .36, .72]
+    ].forEach(([name, x, y]) => ctx.fillText(name, width * x, height * y));
     const route = this.currentNavigation;
     if (route?.alternative?.points?.length > 1) {
       ctx.beginPath();
@@ -427,14 +581,13 @@ export const mapService = {
       const p = project(hospital);
       ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
       ctx.fillStyle = statusColor(hospital.status); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#FFFFFF"; ctx.stroke();
-      ctx.fillStyle = "#0F172A"; ctx.font = "10px system-ui"; ctx.fillText(hospital.name, p.x + 10, p.y - 7);
     });
     const start = route?.primary?.points?.[0] || this.options?.start || STARTING_POINTS[0];
     const origin = project(start);
     ctx.beginPath(); ctx.arc(origin.x, origin.y, 7, 0, Math.PI * 2); ctx.fillStyle = "#0F172A"; ctx.fill();
     ctx.fillStyle = "#FFFFFF"; ctx.font = "bold 9px system-ui"; ctx.fillText("A", origin.x - 3, origin.y + 3);
     if (route?.primary?.points?.length) {
-      const marker = this.positionAt(route.primary.points, route.progress || 0);
+      const marker = this.positionAt(route.primary.points, this.visualProgress ?? route.progress ?? 0);
       const p = project(marker);
       ctx.beginPath(); ctx.arc(p.x, p.y, 9, 0, Math.PI * 2); ctx.fillStyle = "#0284C7"; ctx.fill();
       ctx.lineWidth = 2; ctx.strokeStyle = "#FFFFFF"; ctx.stroke();
@@ -444,55 +597,65 @@ export const mapService = {
   },
   positionAt(points, progress) {
     if (!Array.isArray(points) || points.length < 2) return points?.[0] || STARTING_POINTS[0];
-    const amount = clamp(progress, 0, 1) * (points.length - 1);
-    const index = Math.min(points.length - 2, Math.floor(amount));
-    const fraction = amount - index;
-    const a = points[index]; const b = points[index + 1];
-    return { lat: a.lat + (b.lat - a.lat) * fraction, lng: a.lng + (b.lng - a.lng) * fraction };
+    const lengths = points.slice(1).map((point, index) => distanceKm(points[index], point));
+    const total = lengths.reduce((sum, length) => sum + length, 0);
+    if (!total) return points[0];
+    let remaining = clamp(progress, 0, 1) * total;
+    for (let index = 0; index < lengths.length; index += 1) {
+      if (remaining <= lengths[index] || index === lengths.length - 1) {
+        const fraction = lengths[index] ? remaining / lengths[index] : 0;
+        const a = points[index]; const b = points[index + 1];
+        return { lat: a.lat + (b.lat - a.lat) * fraction, lng: a.lng + (b.lng - a.lng) * fraction };
+      }
+      remaining -= lengths[index];
+    }
+    return points[points.length - 1];
   },
   updateProgress(progress) {
     if (!this.currentNavigation) return;
-    this.currentNavigation.progress = clamp(progress, 0, 1);
-    if (this.effectiveMode() === "offline") this.drawCanvas();
-    else this.updateGoogleVehicle();
+    const target = clamp(progress, 0, 1);
+    const from = this.visualProgress ?? this.currentNavigation.progress ?? 0;
+    this.currentNavigation.progress = target;
+    if (this.progressAnimation) cancelAnimationFrame(this.progressAnimation);
+    const started = performance.now();
+    const duration = 850;
+    const animate = (now) => {
+      const fraction = Math.min(1, (now - started) / duration);
+      this.visualProgress = from + (target - from) * fraction;
+      if (this.effectiveMode() === "offline") this.drawCanvas();
+      else this.updateLeafletVehicle();
+      if (fraction < 1) this.progressAnimation = requestAnimationFrame(animate);
+      else this.progressAnimation = null;
+    };
+    this.progressAnimation = requestAnimationFrame(animate);
   },
-  updateGoogleVehicle() {
+  updateLeafletVehicle() {
     const points = this.currentNavigation?.primary?.points;
-    if (!points?.length) return;
-    const point = this.positionAt(points, this.currentNavigation.progress);
+    if (!points?.length || !this.leafletMap) return;
+    const point = this.positionAt(points, this.visualProgress ?? this.currentNavigation.progress);
     if (!this.vehicleMarker) {
-      this.vehicleMarker = new google.maps.Marker({
-        map: this.googleMap,
-        position: point,
-        title: "Live CareRoute vehicle",
-        icon: { path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW, scale: 5, fillColor: "#0284C7", fillOpacity: 1, strokeColor: "#FFFFFF", strokeWeight: 2 }
-      });
-    } else this.vehicleMarker.setPosition(point);
+      this.vehicleMarker = window.L.circleMarker([point.lat, point.lng], {
+        radius: 8, color: "#FFFFFF", weight: 2, fillColor: "#0284C7", fillOpacity: 1
+      }).bindTooltip("Live CareRoute vehicle");
+      this.vehicleMarker.addTo(this.leafletMap);
+    } else this.vehicleMarker.setLatLng([point.lat, point.lng]);
   },
   setTrafficEnabled(enabled) {
     this.trafficEnabled = Boolean(enabled);
-    if (this.googleTraffic && this.googleMap) this.googleTraffic.setMap(this.trafficEnabled ? this.googleMap : null);
-    this.googleSegmentLines?.forEach((line) => line.setOptions({ strokeOpacity: this.trafficEnabled ? 0.8 : 0 }));
+    this.container?.querySelector(".traffic-key")?.classList.toggle("hidden", !this.trafficEnabled);
+    if (this.leafletMap) this.drawLeafletRoute();
     if (this.canvas) this.drawCanvas();
   },
   setScenario(scenario) {
     if (TRAFFIC_SCENARIOS[scenario]) {
       this.trafficScenario = scenario;
       if (this.canvas) this.drawCanvas();
-      if (this.googleSegmentLines && this.googleMap) {
-        this.googleSegmentLines.forEach((line, index) => {
-          const road = EDGES[index][2];
-          const factor = finite(TRAFFIC_SCENARIOS[scenario].roads[road], 1);
-          line.setOptions({
-            strokeColor: factor > 1.45 ? "#EF4444" : factor > 1.1 ? "#F59E0B" : "#10B981",
-            strokeOpacity: this.trafficEnabled ? 0.8 : 0
-          });
-        });
-      }
+      if (this.leafletMap) this.drawLeafletRoute();
     }
   },
   setMode(mode) {
-    this.mode = ["auto", "google", "offline"].includes(mode) ? mode : "auto";
+    this.mode = mode === "google" ? "free" : ["auto", "free", "offline"].includes(mode) ? mode : "auto";
+    this.forceOffline = false;
   },
   externalLink(hospital, origin) {
     const lat = finite(hospital?.lat, 14.7011); const lng = finite(hospital?.lng, 120.983);
@@ -506,4 +669,5 @@ export const mapService = {
 
 window.addEventListener("resize", () => {
   if (mapService.canvas) mapService.drawCanvas();
+  if (mapService.leafletMap) mapService.leafletMap.invalidateSize();
 });

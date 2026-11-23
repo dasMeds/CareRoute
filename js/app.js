@@ -16,6 +16,7 @@ class CareRouteApp {
     this.initializeData();
     const savedMode = storageService.get(storageService.keys.mapMode, "auto");
     mapService.setMode(savedMode);
+    document.querySelector("#mapModeSelect").value = mapService.mode;
     this.restoreSession();
   }
 
@@ -39,8 +40,8 @@ class CareRouteApp {
     document.querySelector("#signOutButton").addEventListener("click", () => this.signOut());
     document.querySelector("#mapModeSelect").addEventListener("change", (event) => {
       mapService.setMode(event.target.value);
-      storageService.set(storageService.keys.mapMode, event.target.value);
-      securityService.audit("MAP_MODE_CHANGED", this.currentRole || "public", event.target.value);
+      storageService.set(storageService.keys.mapMode, mapService.mode);
+      securityService.audit("MAP_MODE_CHANGED", this.currentRole || "public", mapService.mode);
       this.toast(`Map mode set to ${event.target.options[event.target.selectedIndex].text}.`);
       if (this.currentRole) this.navigate(this.currentRole);
     });
@@ -103,8 +104,8 @@ class CareRouteApp {
     storageService.set(storageService.keys.session, securityService.touchSession(session));
     this.currentRole = role;
     const mode = storageService.get(storageService.keys.mapMode, "auto");
-    document.querySelector("#mapModeSelect").value = mode;
     mapService.setMode(mode);
+    document.querySelector("#mapModeSelect").value = mapService.mode;
     document.querySelector("#signOutButton").classList.remove("hidden");
     document.querySelector("#auditButton").classList.toggle("hidden", !securityService.can(role, "audit.view"));
     const roleNames = { patient: "Patient / Public", rescue: "Ambulance / Rescue", admin: "Hospital Administrator" };

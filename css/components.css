@@ -35,13 +35,17 @@
 .traffic-note { color: var(--slate); font-size: 11px; line-height: 1.45; }
 .current-instruction { display: flex; gap: 10px; align-items: center; padding: 10px; background: #E0F2FE; border-radius: 8px; margin-top: 8px; }
 .current-instruction strong, .current-instruction small { display: block; }
+.current-instruction > div { min-width: 0; overflow-wrap: anywhere; }
+.current-instruction strong { word-break: normal; }
 .current-instruction small { color: var(--slate); font-size: 10px; }
 .maneuver-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--blue); color: white; font-size: 18px; flex: 0 0 auto; }
 .directions-list { max-height: 190px; overflow: auto; }
 .directions-list li { padding: 6px; border-radius: 6px; }
 .directions-list li.current-step { background: #E0F2FE; color: var(--navy); font-weight: 700; }
 .directions-list li::before { display: none; }
-.directions-list li { grid-template-columns: 28px 1fr; }
+.directions-list li { grid-template-columns: 28px minmax(0, 1fr); align-items: start; }
+.directions-list li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+.directions-list li > span:last-child small { white-space: normal; }
 .directions-list li small { display: block; color: var(--slate); font-weight: 400; }
 .transport-step.active { background: #E0F2FE; border-color: var(--blue); color: var(--blue-dark); font-weight: 800; }
 .notice { border: 1px solid var(--border-light); background: var(--white); border-radius: 8px; padding: 12px 14px; font-size: 12px; color: var(--slate); line-height: 1.5; }
@@ -85,9 +89,16 @@
 .icon-button { background: #1E293B; color: var(--white); border-color: #475569; font-size: 12px; min-height: 34px; }
 .compact-select { border: 1px solid #475569; border-radius: 6px; background: #1E293B; color: var(--white); min-height: 34px; padding: 5px 8px; }
 .map-container { height: 510px; min-height: 510px; background: #EAF1F5; border-radius: 8px; position: relative; overflow: hidden; }
+.leaflet-map { width: 100%; height: 100%; z-index: 1; }
+.leaflet-container { font-family: var(--font); }
+.hospital-marker { background: transparent; border: 0; }
+.hospital-marker-pin { width: 30px; height: 34px; display: grid; place-items: center; position: relative; color: #FFFFFF; background: var(--marker-color); border: 2px solid #FFFFFF; border-radius: 50% 50% 50% 4px; box-shadow: 0 2px 6px rgba(15,23,42,.35); transform: rotate(-45deg); }
+.hospital-marker-pin::after { content: ""; position: absolute; inset: 4px; border: 1px solid rgba(255,255,255,.55); border-radius: 50%; }
+.hospital-marker-pin svg { width: 14px; height: 14px; fill: currentColor; transform: rotate(45deg); }
 .offline-canvas { display: block; width: 100%; height: 100%; object-fit: cover; }
 .map-overlay { position: absolute; top: 10px; left: 10px; z-index: 3; }
 .offline-badge { background: var(--navy); color: var(--white); border-radius: 6px; padding: 7px 9px; font-size: 11px; font-weight: 800; }
+.offline-badge small { display: block; max-width: 260px; margin-top: 3px; font-size: 10px; font-weight: 500; }
 .traffic-key { position: absolute; right: 10px; bottom: 10px; z-index: 3; display: flex; gap: 8px; background: rgba(255,255,255,.95); border: 1px solid var(--border-light); border-radius: 7px; padding: 7px; font-size: 11px; }
 .traffic-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
 .traffic-dot.smooth { background: var(--green); } .traffic-dot.moderate { background: var(--amber); } .traffic-dot.heavy { background: var(--red); }

@@ -96,18 +96,18 @@ export function initRescue(app) {
             <div class="metric"><span>Estimated travel</span><strong>${routeResult.primary.eta} min</strong></div>
             <div class="metric"><span>Avg speed</span><strong>${routeResult.primary.speedKmh} km/h</strong></div>
           </div>
-          <small>${routeResult.scenario.label} · roads scored by CareRoute</small>
+          <small>${routeResult.source === "OSRM" ? "OSRM street-following route" : "Offline Valenzuela road-grid estimate"} · ${routeResult.scenario.label}</small>
         </div>
-        <div class="route-option alternative-route">
+        ${routeResult.alternative ? `<div class="route-option alternative-route">
           <div class="session-row"><strong>Alternative route</strong><span>${routeResult.alternative.distanceKm.toFixed(1)} km</span></div>
           <p>${routeResult.alternative.eta} min · ETA ${routeResult.alternative.eta - routeResult.primary.eta >= 0 ? "+" : ""}${routeResult.alternative.eta - routeResult.primary.eta} min vs primary · ${routeResult.scenario.label === "Clear Corridors" ? "Maysan Rd alternate corridor" : "Lower congestion via alternate corridor"}</p>
-        </div>
-        <div class="traffic-note">Waze does not offer a general public embedded routing API/SDK. Traffic scoring, rerouting and navigation cues are modeled by CareRoute.</div>
+        </div>` : ""}
+        <div class="traffic-note">${routeResult.source === "OSRM" ? "OSRM receives origin and destination coordinates only. Do not route from patient-identifying locations. Live traffic data is not included." : "Offline routing uses the local Valenzuela road-grid estimate."}</div>
         <div class="current-instruction" id="currentInstruction"></div>
         <ol class="step-list directions-list" id="directionsList">${routeResult.primary.steps.map((step, index) => `
           <li class="${index === stepIndex ? "current-step" : ""}" data-direction-step="${index}">
-            <span class="maneuver-icon" aria-hidden="true">${step.maneuver === "turn-left" ? "↰" : step.maneuver === "turn-right" ? "↱" : "↑"}</span>
-            <span>${step.instruction}<small>${step.road} · ${step.distanceKm.toFixed(1)} km</small></span>
+            <span class="maneuver-icon" aria-hidden="true">${step.maneuver.includes("left") ? "↰" : step.maneuver.includes("right") ? "↱" : "↑"}</span>
+            <span>${securityService.sanitize(step.instruction)}<small>${securityService.sanitize(step.road)} · ${step.distanceKm.toFixed(1)} km</small></span>
           </li>`).join("")}</ol>
         ${routeActions()}
       ` : '<p class="notice">Calculating route across Valenzuela corridors…</p>'}
@@ -196,7 +196,7 @@ export function initRescue(app) {
     document.querySelectorAll("[data-direction-step]").forEach((item, index) => item.classList.toggle("current-step", index === stepIndex));
     const direction = routeResult.primary.steps[stepIndex];
     const instruction = document.querySelector("#currentInstruction");
-    if (instruction) instruction.innerHTML = `<span class="maneuver-icon">↑</span><div><small>TURN-BY-TURN</small><strong>${direction.instruction}</strong><small>${direction.road} · ${direction.distanceKm.toFixed(1)} km</small></div>`;
+    if (instruction) instruction.innerHTML = `<span class="maneuver-icon">${direction.maneuver.includes("left") ? "↰" : direction.maneuver.includes("right") ? "↱" : "↑"}</span><div><small>TURN-BY-TURN</small><strong>${securityService.sanitize(direction.instruction)}</strong><small>${securityService.sanitize(direction.road)} · ${direction.distanceKm.toFixed(1)} km</small></div>`;
     renderNavigationSummary();
     const status = progress >= 1 ? transportStatuses[3] : progress >= .85 ? transportStatuses[2] : progress > 0 ? transportStatuses[1] : transportStatuses[0];
     setTransportStatus(status);
