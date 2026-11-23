@@ -1,38 +1,243 @@
+// src/data/hospitals.js
+
 export const HOSPITALS = [
+  // Public & DOH Tertiary / Emergency Hospitals
   {
-    id: "vmc", name: "Valenzuela Medical Center", address: "Padrigal St., Karuhatan",
-    lat: 14.6889, lng: 120.9766, type: "Tertiary Government Hospital",
-    available: 4, total: 20, status: "Moderate",
-    specialties: ["Trauma", "Internal Medicine", "Pediatrics"], operationalNotes: "Trauma resuscitation bay 2 on standby."
+    id: "vmc",
+    code: "VMC",
+    name: "Valenzuela Medical Center",
+    category: "Hospital",
+    type: "Public Tertiary (DOH)",
+    address: "Padrigal St., Karuhatan, Valenzuela City",
+    lat: 14.6912,
+    lng: 120.9745,
+    status: "Moderate",
+    available: 6,
+    total: 40
   },
   {
-    id: "vceh", name: "Valenzuela City Emergency Hospital", address: "Poblacion, Polo",
-    lat: 14.7285, lng: 120.9554, type: "LGU Emergency Hospital",
-    available: 0, total: 12, status: "Full / Diverting",
-    specialties: ["Acute Emergency", "Minor Surgery"], operationalNotes: "Temporary diversion in effect."
+    id: "vceh",
+    code: "VCEH",
+    name: "Valenzuela City Emergency Hospital",
+    category: "Hospital",
+    type: "Public Emergency",
+    address: "Poblacion (Polo), Valenzuela City",
+    lat: 14.7285,
+    lng: 120.9558,
+    status: "Available",
+    available: 5,
+    total: 16
+  },
+
+  // Major Private Hospitals & Medical Centers
+  {
+    id: "acemc-val",
+    code: "ACEMC",
+    name: "Allied Care Experts (ACE) Medical Center - Valenzuela",
+    category: "Hospital",
+    type: "Private Medical Center",
+    address: "548 McArthur Highway, Malanday, Valenzuela City",
+    lat: 14.7168,
+    lng: 120.9619,
+    status: "Available",
+    available: 7,
+    total: 24
   },
   {
-    id: "ace", name: "Allied Care Experts (ACE) Medical Center - Valenzuela", address: "548 MacArthur Hwy, Malanday",
-    lat: 14.7165, lng: 120.9617, type: "Private Tertiary",
-    available: 9, total: 15, status: "Available",
-    specialties: ["Cardiology", "Trauma", "Surgery"], operationalNotes: "Catheterization team available."
+    id: "fumc",
+    code: "FUMC",
+    name: "Fatima University Medical Center",
+    category: "Hospital",
+    type: "Private Tertiary",
+    address: "120 McArthur Highway, Marulas, Valenzuela City",
+    lat: 14.6785,
+    lng: 120.9815,
+    status: "Moderate",
+    available: 4,
+    total: 28
   },
   {
-    id: "fumc", name: "Fatima University Medical Center", address: "120 MacArthur Hwy, Marulas",
-    lat: 14.6756, lng: 120.9822, type: "Private Tertiary",
-    available: 2, total: 18, status: "Moderate",
-    specialties: ["Neurology", "Trauma", "OB-GYN"], operationalNotes: "Neurology consult available."
+    id: "vcmc",
+    code: "VCMC",
+    name: "Valenzuela Citicare Medical Center",
+    category: "Hospital",
+    type: "Private Medical Center",
+    address: "McArthur Highway, Malinta, Valenzuela City",
+    lat: 14.6964,
+    lng: 120.9806,
+    status: "Available",
+    available: 5,
+    total: 18
   },
   {
-    id: "citicare", name: "Valenzuela Citicare Medical Center", address: "KM 14 MacArthur Hwy, Malinta",
-    lat: 14.6962, lng: 120.9808, type: "Private Secondary",
-    available: 7, total: 10, status: "Available",
-    specialties: ["General Medicine", "Pediatrics"], operationalNotes: "Pediatric consult available."
+    id: "cgh",
+    code: "CGH",
+    name: "Calalang General Hospital",
+    category: "Hospital",
+    type: "Private General Hospital",
+    address: "16 R. Valenzuela St. / McArthur Hwy cor. 4th St., BBB, Marulas",
+    lat: 14.6742,
+    lng: 120.9824,
+    status: "Available",
+    available: 4,
+    total: 15
   },
   {
-    id: "calalang", name: "Calalang General Hospital", address: "R. Valenzuela St., Marulas",
-    lat: 14.6738, lng: 120.9781, type: "Private",
-    available: 5, total: 8, status: "Available",
-    specialties: ["General Surgery", "Internal Medicine"], operationalNotes: "General surgery bay ready."
+    id: "srgh",
+    code: "SRGH",
+    name: "Sanctissimo Rosario General Hospital",
+    category: "Hospital",
+    type: "Private General Hospital",
+    address: "2 Espiritu St., Marulas, Valenzuela City",
+    lat: 14.6768,
+    lng: 120.9838,
+    status: "Moderate",
+    available: 2,
+    total: 12
+  },
+  {
+    id: "mv-romano",
+    code: "MVRMH",
+    name: "M.V. Romano Hospital",
+    category: "Hospital",
+    type: "Private Hospital",
+    address: "Balubaran, Malinta, Valenzuela City",
+    lat: 14.6948,
+    lng: 120.9852,
+    status: "Available",
+    available: 3,
+    total: 10
+  },
+  {
+    id: "fm-cruz",
+    code: "FMCOGH",
+    name: "F.M. Cruz Orthopedic & General Hospital",
+    category: "Hospital",
+    type: "Private Specialty / General",
+    address: "Prudencia Subd., Marulas, Valenzuela City",
+    lat: 14.6795,
+    lng: 120.9795,
+    status: "Available",
+    available: 3,
+    total: 10
+  },
+  {
+    id: "hernandez-mat",
+    code: "FPHMH",
+    name: "F&P Hernandez Maternity & Lying-in Hospital",
+    category: "Clinic / Lying-in",
+    type: "Maternity & Lying-in",
+    address: "#17 McArthur Highway, Marulas, Valenzuela City",
+    lat: 14.6725,
+    lng: 120.9821,
+    status: "Available",
+    available: 2,
+    total: 8
+  },
+  {
+    id: "pasolo-mat",
+    code: "PMMC",
+    name: "Pasolo Maternity and Medical Center",
+    category: "Clinic / Lying-in",
+    type: "Maternity & Medical",
+    address: "87 Pasolo St., Valenzuela City",
+    lat: 14.7235,
+    lng: 120.9605,
+    status: "Available",
+    available: 2,
+    total: 8
+  },
+  {
+    id: "st-johns",
+    code: "SJH",
+    name: "St. John's Hospital",
+    category: "Hospital",
+    type: "Private Hospital",
+    address: "323 Malinta, Valenzuela City",
+    lat: 14.6978,
+    lng: 120.9802,
+    status: "Full / Diverting",
+    available: 0,
+    total: 10
+  },
+
+  // Outpatient Clinics & City Health Stations
+  {
+    id: "tmc-sm-val",
+    code: "TMC-SM",
+    name: "The Medical City Clinic - SM City Valenzuela",
+    category: "Clinic",
+    type: "Outpatient & Diagnostic Clinic",
+    address: "G/F SM City Valenzuela, McArthur Hwy, Karuhatan",
+    lat: 14.6896,
+    lng: 120.9772,
+    status: "Available",
+    available: 2,
+    total: 4
+  },
+  {
+    id: "carlos-clinic",
+    code: "CCLC",
+    name: "Carlos Clinic",
+    category: "Clinic",
+    type: "Outpatient Clinic",
+    address: "8/257 Palasan St., Valenzuela City",
+    lat: 14.7252,
+    lng: 120.9585,
+    status: "Available",
+    available: 1,
+    total: 4
+  },
+  {
+    id: "hc-maysan",
+    code: "HC-MAY",
+    name: "Maysan Health Station",
+    category: "Health Center",
+    type: "Barangay Health Station",
+    address: "Maysan Rd., Maysan, Valenzuela City",
+    lat: 14.7055,
+    lng: 120.9708,
+    status: "Available",
+    available: 1,
+    total: 3
+  },
+  {
+    id: "hc-malinta",
+    code: "HC-MAL",
+    name: "Malinta Health Center",
+    category: "Health Center",
+    type: "City Health Station",
+    address: "Malinta, Valenzuela City",
+    lat: 14.6961,
+    lng: 120.9804,
+    status: "Moderate",
+    available: 1,
+    total: 4
+  },
+  {
+    id: "hc-gen-t",
+    code: "HC-GTL",
+    name: "Gen. T. De Leon Health Station",
+    category: "Health Center",
+    type: "City Health Station",
+    address: "Gen. T. De Leon, Valenzuela City",
+    lat: 14.6865,
+    lng: 120.9912,
+    status: "Available",
+    available: 2,
+    total: 4
+  },
+  {
+    id: "hc-ugong",
+    code: "HC-UGG",
+    name: "Ugong Health Station",
+    category: "Health Center",
+    type: "City Health Station",
+    address: "Ugong, Valenzuela City",
+    lat: 14.7045,
+    lng: 120.9945,
+    status: "Available",
+    available: 1,
+    total: 3
   }
 ];
