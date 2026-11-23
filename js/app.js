@@ -2,7 +2,7 @@ import { CONFIG } from "./config.js";
 import { storageService } from "./services/storageService.js";
 import { securityService } from "./services/securityService.js";
 import { mapService } from "./services/mapService.js";
-import { renderAuth } from "./views/authView.js";
+import { renderAuth, initAuth } from "./views/authView.js";
 import { renderPatient, initPatient } from "./views/patientView.js";
 import { renderRescue, initRescue } from "./views/rescueView.js";
 import { renderAdmin, initAdmin } from "./views/adminView.js";
@@ -14,7 +14,9 @@ class CareRouteApp {
     this.currentRole = null;
     this.bindGlobalEvents();
     this.initializeData();
-    this.renderAuth();
+    const savedMode = storageService.get(storageService.keys.mapMode, "auto");
+    mapService.setMode(savedMode);
+    this.restoreSession();
   }
 
   initializeData() {
@@ -34,10 +36,7 @@ class CareRouteApp {
     document.querySelector("#auditButton").addEventListener("click", () => this.openAuditDrawer());
     document.querySelector("#mobileView").addEventListener("click", () => this.setViewport("mobile"));
     document.querySelector("#desktopView").addEventListener("click", () => this.setViewport("desktop"));
-    document.querySelector("#roleSelect").addEventListener("change", (event) => {
-      if (!event.target.value) return this.renderAuth();
-      if (this.currentRole !== event.target.value) this.requestRoleLogin(event.target.value);
-    });
+    document.querySelector("#signOutButton").addEventListener("click", () => this.signOut());
     document.querySelector("#mapModeSelect").addEventListener("change", (event) => {
       mapService.setMode(event.target.value);
       storageService.set(storageService.keys.mapMode, event.target.value);
@@ -61,45 +60,56 @@ class CareRouteApp {
 
   renderAuth() {
     this.currentRole = null;
-    document.querySelector("#roleSelect").value = "";
+    document.querySelector("#signOutButton").classList.add("hidden");
+    document.querySelector("#sessionLabel").classList.add("hidden");
+    document.querySelector("#auditButton").classList.add("hidden");
     this.main.innerHTML = renderAuth(this);
-    document.querySelectorAll("[data-demo-login]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const role = button.dataset.demoLogin;
-        const passcode = document.querySelector(`[data-role-pass="${role}"]`).value;
-        if (passcode !== "demo123") {
-          this.toast("Use the demo passcode: demo123");
-          return;
-        }
-        this.login(role);
-      });
-    });
+    initAuth((credentials) => this.login(credentials));
   }
 
-  requestRoleLogin(role) {
-    document.querySelector("#roleSelect").value = this.currentRole || "";
-    this.renderAuth();
-    document.querySelector(`[data-role-pass="${role}"]`)?.focus();
-    this.toast(`Enter the ${role} demo passcode: demo123`);
-  }
-
-  async login(role) {
-    const session = {
-      ...securityService.sessionPayload(role),
-      tokenHash: await securityService.token()
-    };
+  async login(credentials) {
+    const tokenHash = await securityService.token();
+    const session = securityService.createSession({ ...credentials, tokenHash });
     storageService.set(storageService.keys.session, session);
-    securityService.audit("DEMO_LOGIN", role, "Prototype role session created");
-    this.currentRole = role;
-    document.querySelector("#roleSelect").value = role;
-    this.navigate(role);
+    securityService.audit("DEMO_LOGIN", session.role, `${session.account} signed in${session.facility ? ` at ${session.facility}` : ""}`);
+    this.navigate(session.role);
+  }
+
+  restoreSession() {
+    const session = storageService.get(storageService.keys.session, null);
+    if (!session || !session.account || !session.tokenHash || securityService.isSessionLocked(session, CONFIG.sessionTimeoutMs)) {
+      if (session) this.signOut(true);
+      else this.renderAuth();
+      return;
+    }
+    this.navigate(session.role);
+  }
+
+  signOut(expired = false) {
+    const old = storageService.get(storageService.keys.session, null);
+    if (old) securityService.audit(expired ? "SESSION_EXPIRED" : "SIGN_OUT", old.role, old.account || "");
+    localStorage.removeItem(storageService.keys.session);
+    this.renderAuth();
+    if (expired) this.toast("Your demo session expired. Please sign in again.");
   }
 
   navigate(role) {
+    const session = storageService.get(storageService.keys.session, null);
+    if (!session || session.role !== role || securityService.isSessionLocked(session, CONFIG.sessionTimeoutMs)) {
+      if (session) this.signOut(true);
+      else this.renderAuth();
+      return;
+    }
+    storageService.set(storageService.keys.session, securityService.touchSession(session));
     this.currentRole = role;
     const mode = storageService.get(storageService.keys.mapMode, "auto");
     document.querySelector("#mapModeSelect").value = mode;
     mapService.setMode(mode);
+    document.querySelector("#signOutButton").classList.remove("hidden");
+    document.querySelector("#auditButton").classList.toggle("hidden", !securityService.can(role, "audit.view"));
+    const roleNames = { patient: "Patient / Public", rescue: "Ambulance / Rescue", admin: "Hospital Administrator" };
+    document.querySelector("#sessionLabel").textContent = `${roleNames[role]} · ${session.facility || session.account}`;
+    document.querySelector("#sessionLabel").classList.remove("hidden");
     if (role === "patient") {
       this.main.innerHTML = renderPatient();
       initPatient(this);
@@ -124,6 +134,10 @@ class CareRouteApp {
   }
 
   openAuditDrawer() {
+    if (!securityService.require(this.currentRole, "audit.view")) {
+      this.toast("Audit log access is limited to authorized hospital administrators.");
+      return;
+    }
     const entries = storageService.getAudit();
     this.modalRegion.innerHTML = `
       <div class="modal-backdrop drawer-backdrop">

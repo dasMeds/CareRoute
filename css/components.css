@@ -1,26 +1,49 @@
-.role-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; max-width: 1080px; margin: 36px auto 16px; }
-.role-card {
-  border: 1px solid var(--border);
-  background: var(--white);
-  border-radius: var(--radius);
-  padding: 22px;
-  min-height: 220px;
-  box-shadow: var(--shadow);
-  text-align: left;
-  color: var(--navy);
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-.role-card:hover { border-color: var(--blue); box-shadow: 0 10px 28px rgba(2, 132, 199, .12); }
-.role-icon { width: 44px; height: 44px; display: grid; place-items: center; background: #E0F2FE; color: var(--blue-dark); border-radius: 8px; }
-.role-card h2 { margin: 16px 0 6px; font-size: 18px; }
-.role-card p { margin: 0; color: var(--slate); font-size: 13px; line-height: 1.5; }
-.auth-page { min-height: calc(100vh - 68px); background: linear-gradient(180deg, #F8FAFC 0, #EEF4F7 100%); }
+.auth-page { min-height: calc(100vh - 68px); padding: 28px 16px 40px; background: var(--surface); }
 .auth-intro { text-align: center; max-width: 700px; margin: 0 auto; padding-top: 34px; }
-.auth-intro h1 { margin: 0 0 8px; font-size: 30px; }
+.auth-intro h1 { margin: 12px 0 8px; font-size: 30px; }
 .auth-intro p { color: var(--slate); margin: 0; }
-.privacy-notice { max-width: 1080px; margin: 18px auto 0; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.auth-mark { margin: 0 auto; }
+.auth-form-wrap { max-width: 480px; margin: 24px auto 0; }
+.auth-form { box-shadow: var(--shadow); }
+.auth-form > .panel-header { padding: 18px 20px; }
+.auth-form > .panel-header small { display: block; color: var(--slate); margin-top: 5px; }
+.auth-form .panel-body { display: grid; gap: 14px; padding: 20px; }
+.password-row { display: flex; gap: 7px; }
+.password-row input { flex: 1; min-width: 0; }
+.acknowledgment { display: flex; align-items: flex-start; gap: 9px; color: var(--slate); font-size: 12px; line-height: 1.5; }
+.acknowledgment input { margin-top: 3px; flex: 0 0 auto; }
+.sign-in-button { min-height: 44px; }
+.text-button, .link-button { border: 0; padding: 0; background: transparent; color: var(--blue-dark); text-decoration: underline; font-weight: 700; }
+.demo-hint, .privacy-notice-inline { color: var(--slate); font-size: 11px; margin: 0; }
+.privacy-notice-inline { border-top: 1px solid var(--border-light); padding-top: 10px; }
+.hidden { display: none !important; }
+.session-label { color: #CBD5E1; font-size: 11px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dispatch-toolbar { display: flex; gap: 10px; align-items: end; padding: 10px; flex-wrap: wrap; }
+.dispatch-toolbar .field { min-width: 190px; }
+.dispatch-toolbar select { min-height: 38px; border: 1px solid var(--border); border-radius: 7px; padding: 7px; background: var(--white); }
+.map-workflow-bar { justify-content: space-between; margin: 0 0 10px; }
+.inline-field { display: flex; align-items: center; gap: 8px; color: var(--slate); font-size: 12px; font-weight: 700; }
+.inline-field select { min-height: 36px; border: 1px solid var(--border); border-radius: 7px; background: var(--white); padding: 6px; }
+.navigation-summary { margin-top: 10px; }
+.navigation-summary .panel-body { padding: 12px 14px; }
+.navigation-controls { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.navigation-controls button { min-height: 34px; padding: 6px 9px; font-size: 12px; }
+.route-option { border: 1px solid var(--border-light); border-radius: 8px; padding: 10px; margin-top: 10px; }
+.recommended-route { border-left: 3px solid var(--blue); }
+.alternative-route { border-left: 3px dashed var(--amber); }
+.alternative-route p { color: var(--slate); font-size: 12px; margin: 7px 0 0; }
+.traffic-note { color: var(--slate); font-size: 11px; line-height: 1.45; }
+.current-instruction { display: flex; gap: 10px; align-items: center; padding: 10px; background: #E0F2FE; border-radius: 8px; margin-top: 8px; }
+.current-instruction strong, .current-instruction small { display: block; }
+.current-instruction small { color: var(--slate); font-size: 10px; }
+.maneuver-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--blue); color: white; font-size: 18px; flex: 0 0 auto; }
+.directions-list { max-height: 190px; overflow: auto; }
+.directions-list li { padding: 6px; border-radius: 6px; }
+.directions-list li.current-step { background: #E0F2FE; color: var(--navy); font-weight: 700; }
+.directions-list li::before { display: none; }
+.directions-list li { grid-template-columns: 28px 1fr; }
+.directions-list li small { display: block; color: var(--slate); font-weight: 400; }
+.transport-step.active { background: #E0F2FE; border-color: var(--blue); color: var(--blue-dark); font-weight: 800; }
 .notice { border: 1px solid var(--border-light); background: var(--white); border-radius: 8px; padding: 12px 14px; font-size: 12px; color: var(--slate); line-height: 1.5; }
 .notice strong { color: var(--navy); }
 .panel { background: var(--white); border: 1px solid var(--border-light); border-radius: var(--radius); box-shadow: 0 2px 10px rgba(15,23,42,.04); }
@@ -91,17 +114,15 @@
 .session-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
 .transport-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 10px; }
 .transport-step { border: 1px solid var(--border-light); border-radius: 6px; padding: 7px 5px; text-align: center; font-size: 10px; color: var(--slate); }
-.transport-step.active { background: #E0F2FE; border-color var(--blue); color: var(--blue-dark); font-weight: 800; }
 .tab-row { display: flex; gap: 5px; border-bottom: 1px solid var(--border-light); margin-bottom: 12px; }
 .tab-row button { border: 0; background: transparent; padding: 9px 10px; color: var(--slate); border-bottom: 2px solid transparent; }
 .tab-row button.active { color: var(--blue-dark); border-bottom-color: var(--blue); }
 @media (max-width: 900px) {
-  .role-grid { grid-template-columns: 1fr; margin-top: 20px; }
-  .role-card { min-height: 160px; }
-  .privacy-notice { grid-template-columns: 1fr; }
   .auth-intro { padding: 18px 14px 0; }
   .auth-intro h1 { font-size: 24px; }
   .map-container { height: 420px; min-height: 420px; }
+  .dispatch-toolbar .field { width: 100%; }
   .filter-bar { flex-wrap: wrap; }
   .filter-bar input, .filter-bar select { width: 100%; }
+  .session-label { display: none !important; }
 }

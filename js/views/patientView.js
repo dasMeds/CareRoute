@@ -14,9 +14,19 @@ export function renderPatient() {
         <input id="patientSearch" type="search" placeholder="Search hospital or specialty">
         <select id="patientStatus"><option value="all">All statuses</option><option value="accepting">Accepting only</option></select>
         <select id="patientSpecialty"><option value="">All specialties</option><option>Trauma</option><option>Cardiology</option><option>Pediatrics</option><option>Neurology</option><option>OB-GYN</option><option>General Surgery</option></select>
+        <select id="patientSort" aria-label="Sort facilities"><option value="default">Sort: Recommended</option><option value="distance">Sort: Nearest</option></select>
+      </div>
+      <div class="toolbar map-workflow-bar">
+        <label class="inline-field">Starting point
+          <select id="patientStart">${mapService.startingPoints.map((point, index) => `<option value="${index}">${point.name}</option>`).join("")}</select>
+        </label>
+        <span class="traffic-note">Waze-style route scoring and rerouting are modeled by CareRoute; Waze has no general public embedded routing API/SDK.</span>
       </div>
       <div class="map-layout">
-        <div id="patientMap" class="map-container"></div>
+        <div>
+          <div id="patientMap" class="map-container"></div>
+          <div class="navigation-summary panel" id="patientRoutePreview"></div>
+        </div>
         <aside class="panel route-panel">
           <div class="panel-header"><h2>Facilities</h2><span id="patientCount" class="status-badge available">0 results</span></div>
           <div id="patientHospitalList" class="panel-body hospital-list"></div>
@@ -28,16 +38,19 @@ export function renderPatient() {
 
 export function initPatient(app) {
   let selected = storageService.getHospitals()[0];
+  let start = mapService.startingPoints[0];
   const list = document.querySelector("#patientHospitalList");
   const map = document.querySelector("#patientMap");
+  const routePreview = document.querySelector("#patientRoutePreview");
 
   function hospitalCard(hospital) {
     const fill = hospital.total ? Math.round((hospital.available / hospital.total) * 100) : 0;
     const statusClass = hospital.status === "Available" ? "available" : hospital.status === "Moderate" ? "moderate" : "full";
+    const route = mapService.route(start, hospital).primary;
     return `
       <article class="hospital-card ${selected?.id === hospital.id ? "selected" : ""}" data-hospital-id="${hospital.id}">
         <div class="hospital-title"><div><h3>${securityService.sanitize(hospital.name)}</h3><div class="hospital-address">${securityService.sanitize(hospital.address)}</div></div><span class="status-badge ${statusClass}">${hospital.status}</span></div>
-        <div class="capacity-row"><strong>${hospital.available}/${hospital.total}</strong><span>${fill}% available</span></div>
+        <div class="capacity-row"><strong>${hospital.available}/${hospital.total}</strong><span>${fill}% available · ${route.distanceKm.toFixed(1)} km · ${route.eta} min</span></div>
         <div class="occupancy"><div class="occupancy-fill ${statusClass}" style="width:${fill}%"></div></div>
         <small>${hospital.specialties.join(" · ")}</small>
       </article>`;
@@ -52,23 +65,46 @@ export function initPatient(app) {
       (status !== "accepting" || hospital.status === "Available") &&
       (!specialty || hospital.specialties.includes(specialty))
     );
+    if (document.querySelector("#patientSort").value === "distance") {
+      hospitals.sort((a, b) => mapService.route(start, a).primary.eta - mapService.route(start, b).primary.eta);
+    }
     list.innerHTML = hospitals.map(hospitalCard).join("") || '<p>No facilities match the selected filters.</p>';
     document.querySelector("#patientCount").textContent = `${hospitals.length} results`;
   }
 
-  mapService.render(map, { destination: selected });
+  async function updateRoute() {
+    const route = await mapService.calculateRoute(start, selected);
+    await mapService.render(map, { start, destination: selected });
+    const diversion = selected.available <= 0 || selected.status === "Full / Diverting";
+    const closest = storageService.getHospitals().filter((hospital) => hospital.available > 0 && hospital.id !== selected.id)
+      .sort((a, b) => mapService.route(start, a).primary.eta - mapService.route(start, b).primary.eta)[0];
+    routePreview.innerHTML = `
+      <div class="panel-body">
+        ${diversion ? `<div class="diversion-warning"><strong>Facility is Full / Diverting.</strong> ${closest ? `Nearest accepting alternative: ${closest.name} (${mapService.route(start, closest).primary.eta} min).` : "No accepting alternatives are listed."}</div>` : ""}
+        <div class="session-row"><div><strong>Route to ${selected.name}</strong><small>${route.scenario.label} · route guidance is a demonstration</small></div><span class="status-badge ${diversion ? "full" : "available"}">${diversion ? "Check alternatives" : "Route ready"}</span></div>
+        <div class="grid-3" style="margin-top:8px"><div class="metric"><span>Road distance</span><strong>${route.primary.distanceKm.toFixed(1)} km</strong></div><div class="metric"><span>ETA</span><strong>${route.primary.eta} min</strong></div><div class="metric"><span>Road speed</span><strong>${route.primary.speedKmh} km/h</strong></div></div>
+        <ol class="step-list">${route.primary.steps.slice(0, 3).map((step) => `<li>${step.instruction} · ${step.distanceKm.toFixed(1)} km</li>`).join("")}</ol>
+      </div>`;
+  }
+  updateRoute();
   renderList();
-  ["patientSearch", "patientStatus", "patientSpecialty"].forEach((id) => document.querySelector(`#${id}`).addEventListener("input", renderList));
+  ["patientSearch", "patientStatus", "patientSpecialty", "patientSort"].forEach((id) => document.querySelector(`#${id}`).addEventListener("input", renderList));
+  document.querySelector("#patientStart").addEventListener("change", (event) => {
+    start = mapService.startingPoints[Number(event.target.value)];
+    renderList();
+    updateRoute();
+  });
   list.addEventListener("click", (event) => {
     const card = event.target.closest("[data-hospital-id]");
     if (!card) return;
     selected = storageService.getHospitals().find((h) => h.id === card.dataset.hospitalId);
     renderList();
-    mapService.render(map, { destination: selected });
+    updateRoute();
   });
   map.addEventListener("hospital:select", (event) => {
     selected = event.detail;
     renderList();
+    updateRoute();
   });
   document.querySelector("[data-open-triage]").addEventListener("click", () => openBasicTriage(app, selected));
 }

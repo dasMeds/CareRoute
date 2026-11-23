@@ -1,38 +1,105 @@
 import { icon } from "../../assets/icons.js";
 
-export function renderAuth(onLogin) {
+export function renderAuth() {
   return `
     <section class="auth-page">
       <div class="auth-intro">
-        <h1>Valenzuela Hospital Capacity Portal</h1>
-        <p>Capacity visibility, pre-arrival readiness, and coordinated patient navigation for clinical and public users.</p>
+        <div class="brand-mark auth-mark" aria-hidden="true">+</div>
+        <h1>CareRoute Sign-In</h1>
+        <p>Valenzuela City hospital capacity and patient navigation</p>
       </div>
-      <div class="role-grid">
-        ${roleCard("patient", "Patient / Public User", "Search accepting hospitals, submit basic self-triage, and view one route to a facility.", "user")}
-        ${roleCard("rescue", "Ambulance / LGU Rescue", "Coordinate dispatch, digital triage, diversion checks, and live transport status.", "ambulance")}
-        ${roleCard("admin", "Hospital Administrator", "Update ER capacity, manage inbound anticipation, and inspect the compliance audit trail.", "hospital")}
-      </div>
-      <div class="privacy-notice">
-        <div class="notice"><strong>Philippine privacy notice:</strong> This prototype follows RA 10173 data minimization concepts and uses generated transaction numbers. Do not enter government IDs, full addresses, or sensitive clinical narratives.</div>
-        <div class="notice"><strong>Clinical notice:</strong> RA 11223, DOH NPNRS principles, and HIPAA safeguard concepts inform this academic demonstration. It is not emergency dispatch advice or a certified clinical system.</div>
+      <div class="auth-form-wrap">
+        <form id="signInForm" class="panel auth-form">
+          <div class="panel-header"><div><h2>Sign in to your workspace</h2><small>Use the role assigned for this demonstration.</small></div>${icon("lock", 20)}</div>
+          <div class="panel-body">
+            <div class="field"><label for="authRole">Role</label>
+              <select id="authRole" name="role" required>
+                <option value="patient">Patient / Public User</option>
+                <option value="rescue">Ambulance / LGU Rescue Team</option>
+                <option value="admin">Hospital Administrator / Triage Staff</option>
+              </select>
+            </div>
+            <div class="field"><label for="authAccount">Account / Badge / Email</label><input id="authAccount" name="account" autocomplete="username" required maxlength="80" placeholder="Enter your account"></div>
+            <div class="field"><label for="authPasscode">Passcode</label>
+              <div class="password-row"><input id="authPasscode" name="passcode" type="password" autocomplete="current-password" required maxlength="80" placeholder="Enter passcode"><button id="togglePassword" type="button" class="secondary-button" aria-label="Show passcode">Show</button></div>
+            </div>
+            <div class="field hidden" id="facilityField"><label for="authFacility">Assigned facility / rescue unit</label>
+              <select id="authFacility" name="facility"></select>
+            </div>
+            <label class="acknowledgment"><input id="privacyAck" name="privacyAck" type="checkbox" required>
+              <span>I acknowledge the RA 10173 privacy notice and HIPAA-inspired minimum-necessary safeguards. I will not enter unnecessary personal identifiers or clinical narratives.</span>
+            </label>
+            <button type="submit" class="primary-button sign-in-button">Sign In</button>
+            <button id="autofillCredentials" type="button" class="text-button">Autofill Credentials for evaluation</button>
+            <p class="demo-hint">Evaluation passcode: <strong>demo123</strong>. Demo accounts are local-only and are not real authentication credentials.</p>
+            <p class="privacy-notice-inline">This academic prototype is not an emergency service or a certified clinical system.</p>
+          </div>
+        </form>
       </div>
     </section>
   `;
 }
 
-function roleCard(role, title, copy, iconName) {
-  return `
-    <article class="role-card">
-      <div>
-        <div class="role-icon">${icon(iconName, 24)}</div>
-        <h2>${title}</h2>
-        <p>${copy}</p>
-      </div>
-      <div class="field" style="margin-top:16px">
-        <label for="pass-${role}">Demo passcode</label>
-        <input id="pass-${role}" type="password" autocomplete="off" placeholder="Enter passcode" data-role-pass="${role}">
-      </div>
-      <button type="button" class="primary-button" data-demo-login="${role}" style="margin-top:10px">Open demo workspace</button>
-    </article>
-  `;
+export function initAuth(onSignIn) {
+  const form = document.querySelector("#signInForm");
+  const role = document.querySelector("#authRole");
+  const facilityField = document.querySelector("#facilityField");
+  const facility = document.querySelector("#authFacility");
+  const facilities = {
+    rescue: [
+      ["lgu-rescue-01", "Valenzuela LGU Rescue Unit 01"],
+      ["lgu-rescue-02", "Valenzuela LGU Rescue Unit 02"],
+      ["valenzuela-ambulance", "Valenzuela Medical Center Ambulance"]
+    ],
+    admin: [
+      ["vmc", "Valenzuela Medical Center"],
+      ["vceh", "Valenzuela City Emergency Hospital"],
+      ["ace", "ACE Medical Center - Valenzuela"],
+      ["fumc", "Fatima University Medical Center"],
+      ["citicare", "Valenzuela Citicare Medical Center"],
+      ["calalang", "Calalang General Hospital"]
+    ]
+  };
+  const refreshFacility = () => {
+    const options = facilities[role.value];
+    facilityField.classList.toggle("hidden", !options);
+    facility.required = Boolean(options);
+    facility.innerHTML = (options || []).map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  };
+  role.addEventListener("change", refreshFacility);
+  refreshFacility();
+  document.querySelector("#togglePassword").addEventListener("click", (event) => {
+    const input = document.querySelector("#authPasscode");
+    const showing = input.type === "password";
+    input.type = showing ? "text" : "password";
+    event.currentTarget.textContent = showing ? "Hide" : "Show";
+    event.currentTarget.setAttribute("aria-label", showing ? "Hide passcode" : "Show passcode");
+  });
+  document.querySelector("#autofillCredentials").addEventListener("click", () => {
+    const roleDefaults = {
+      patient: ["public.demo@careroute.local", "demo123"],
+      rescue: ["VAL-RESCUE-01", "demo123"],
+      admin: ["triage.demo@careroute.local", "demo123"]
+    };
+    const [account, passcode] = roleDefaults[role.value];
+    document.querySelector("#authAccount").value = account;
+    document.querySelector("#authPasscode").value = passcode;
+    document.querySelector("#privacyAck").checked = true;
+  });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const data = Object.fromEntries(new FormData(form));
+    if (data.passcode !== "demo123") {
+      document.querySelector("#authPasscode").setCustomValidity("Use the demo passcode shown below.");
+      document.querySelector("#authPasscode").reportValidity();
+      document.querySelector("#authPasscode").setCustomValidity("");
+      return;
+    }
+    onSignIn({
+      role: data.role,
+      account: data.account.trim(),
+      facility: data.facility || ""
+    });
+  });
 }

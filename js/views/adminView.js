@@ -20,7 +20,9 @@ export function renderAdmin() {
 }
 
 function capacityView(app) {
-  const hospitals = storageService.getHospitals();
+  const allHospitals = storageService.getHospitals();
+  const assignedFacility = storageService.get(storageService.keys.session, null)?.facility;
+  const hospitals = assignedFacility ? allHospitals.filter((hospital) => hospital.id === assignedFacility) : allHospitals;
   return `
     <div class="grid-2">
       <div class="panel">
@@ -41,7 +43,8 @@ function capacityView(app) {
 }
 
 function triageView(app) {
-  const records = storageService.getTriage();
+  const assignedFacility = storageService.get(storageService.keys.session, null)?.facility;
+  const records = storageService.getTriage().filter((record) => !assignedFacility || record.hospitalId === assignedFacility);
   return `
     <div class="grid-2">
       <div class="panel">
@@ -52,6 +55,7 @@ function triageView(app) {
             <div>
               <span class="status-badge moderate">${record.status}</span>
               <button type="button" class="secondary-button" style="display:block;margin-top:6px" data-triage-action="prepare" data-triage-id="${record.id}">Prepare Bed</button>
+              <button type="button" class="secondary-button" style="display:block;margin-top:4px" data-triage-action="arrive" data-triage-id="${record.id}">Mark Arrived</button>
             </div>
           </div>`).join("") : "<p>No inbound records yet.</p>"}</div>
       </div>
@@ -63,11 +67,12 @@ function triageView(app) {
 }
 
 function apiView(app) {
+  const assignedFacility = storageService.get(storageService.keys.session, null)?.facility;
   const payload = {
     system: "CareRoute",
     scope: "Valenzuela City",
     lastUpdated: new Date().toISOString(),
-    facilities: storageService.getHospitals().map((h) => ({
+    facilities: storageService.getHospitals().filter((hospital) => !assignedFacility || hospital.id === assignedFacility).map((h) => ({
       id: h.id,
       name: h.name,
       status: h.status,
@@ -177,16 +182,19 @@ function bindTriage(app) {
       const records = storageService.getTriage();
       const record = records.find((item) => item.id === button.dataset.triageId);
       if (!record) return;
-      record.status = "Bed Prepared";
+      const action = button.dataset.triageAction;
+      record.status = action === "arrive" ? "Arrived" : "Bed Prepared";
       storageService.set(storageService.keys.triage, records);
-      securityService.audit("TRIAGE_ACTION", "admin", `Prepare Bed: ${record.id}`);
-      app.toast(`Bed preparation recorded for ${record.id}.`);
+      securityService.audit("TRIAGE_ACTION", "admin", `${record.status}: ${record.id}`);
+      app.toast(`${record.status} recorded for ${record.id}.`);
       document.querySelector('[data-admin-tab="triage"]')?.click();
     });
   });
   document.querySelector("[data-admin-divert]")?.addEventListener("click", () => {
     const hospitals = storageService.getHospitals();
-    const first = hospitals[0];
+    const assignedFacility = storageService.get(storageService.keys.session, null)?.facility;
+    const first = hospitals.find((hospital) => hospital.id === assignedFacility) || hospitals[0];
+    if (!first) return app.toast("No facility is available to update.");
     const index = hospitals.findIndex((item) => item.id === first.id);
     hospitals[index] = { ...first, status: "Full / Diverting", available: 0 };
     storageService.setHospitals(hospitals);

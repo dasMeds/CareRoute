@@ -2,9 +2,9 @@
 
 **Design and Development of CareRoute: A Web and Mobile-Based Hospital Capacity Tracker and Patient Navigation System for Valenzuela City**
 
-CareRoute is an academic, browser-based prototype for viewing ER capacity, submitting privacy-minimized pre-arrival triage, coordinating ambulance navigation, and allowing authorized hospital staff to update capacity in real time.
+CareRoute is a browser-based capstone prototype for Valenzuela City hospital ER capacity discovery, privacy-minimized pre-arrival triage, ambulance dispatch coordination, and facility status management.
 
-## Directory architecture
+## Project layout
 
 ```text
 careroute-prototype/
@@ -17,7 +17,8 @@ careroute-prototype/
 │   └── components.css
 ├── js/
 │   ├── config.js
-│   ├── data/hospitals.js
+│   ├── data/
+│   │   └── hospitals.js
 │   ├── services/
 │   │   ├── storageService.js
 │   │   ├── securityService.js
@@ -28,31 +29,40 @@ careroute-prototype/
 │   │   ├── rescueView.js
 │   │   └── adminView.js
 │   └── app.js
-└── assets/icons.js
+└── assets/
+    └── icons.js
 ```
 
 ## Run locally
 
-Serve the repository with any static HTTP server:
+Serve the directory over HTTP (ES modules do not run from `file://`):
 
 ```bash
 python -m http.server 4173
 ```
 
-Or use VS Code Live Server, `npx serve .`, or place it in an XAMPP `htdocs` directory. Open `http://localhost:4173` or the corresponding local address. Do not open `index.html` through `file://`; ES modules require HTTP.
+Open `http://localhost:4173`. VS Code Live Server, `npx serve .`, or XAMPP static hosting from `htdocs` also work. There are no external CSS or icon CDNs.
 
-The prototype stores demo state in `localStorage`. Hospital updates, triage submissions, transport status, and audit entries synchronize between views in the same browser. Use **Reset Demo Data** in the top bar to restore the seed hospitals and clear locally submitted records.
+The file paths in the directory tree are all included in this repository; load `index.html` from the served project root.
 
-## Hybrid mapping
+Use the **Autofill Credentials for evaluation** control on the sign-in form. The demonstration passcode is `demo123`. The sample credentials are not real authentication. Choose a role, enter an account/badge, select the assigned facility/unit where shown, and acknowledge the privacy notice before signing in. The **Sign Out / Switch Account** control ends the local role session.
 
-Set the public Google Maps JavaScript API key in `js/config.js` using `googleMapsApiKey: "..."`, or provide `window.CAREROUTE_CONFIG = { googleMapsApiKey: "..." }` before the module loads. Do not commit a real secret or restricted credential. The key is public client configuration and must be restricted to approved origins and enabled APIs.
+Hospital capacity, triage submissions, transport status, and access audit entries persist in browser `localStorage` and are synchronized between views and same-origin tabs. **Reset Demo Data** restores the six seed facility records and clears submitted triage, transport, audit, and map-mode state. It is intended for demonstration resets, not for managing production records.
 
-When online and an enabled Maps JavaScript API key is available, CareRoute renders Google Maps, the native Traffic Layer, custom hospital markers, Directions/Routes results, and route instructions. Waze does not provide a general public embedded routing SDK/API. CareRoute therefore models Waze-style congestion scoring, rerouting, segment indicators, and navigation cues locally. An external Google Maps or Waze launch link remains available for manual handoff.
+## Navigation and maps
 
-When the key is absent, the network is unavailable, Maps loading fails, or **Offline Fallback** is selected, the app uses a Valenzuela vector/canvas map. It displays major corridors, status-coded hospital markers, simulated congestion segments, and moving transport markers without map tiles.
+The navigation panel embeds route previews in the patient capacity view and ambulance dispatch workflow. It supports the PLV Maysan Campus, Karuhatan, Malinta, Marulas, and Malanday starting points, browser GPS (permission and Valenzuela coverage permitting), facility pins, traffic scenarios, a recommended and alternate corridor, turn-by-turn instructions, a moving route marker, pause/resume, step-forward, reset, and simulated transport stages.
 
-## Security and compliance
+CareRoute calculates deterministic routes across a Valenzuela road-corridor graph and guards numeric inputs/results so distance, ETA, speed, progress, and map coordinates use finite values. The simulation's distances and travel estimates are approximations, not road-verified or emergency dispatch directions.
 
-CareRoute is an academic prototype aligned conceptually with RA 10173 (Data Privacy Act of 2012), RA 11223 (Universal Health Care Act), DOH National Patient Navigation and Referral System principles, and HIPAA administrative, technical, and physical safeguard concepts. It minimizes identifiers, uses generated transaction numbers, and maintains role-aware demonstration controls and an audit trail.
+For Google Maps, set `googleMapsApiKey` in `js/config.js`, or define `window.CAREROUTE_CONFIG = { googleMapsApiKey: "YOUR_RESTRICTED_KEY" }` before `js/app.js` loads. The key is public browser configuration; restrict it by origin and enabled APIs, and do not commit an unrestricted credential. When online with a working key, the prototype loads Maps JavaScript, the native Traffic Layer, facility markers, and Google Directions results. It falls back to its vector map when the key is absent, network is offline, API loading fails, or Offline Fallback is selected. Auto mode chooses Google Maps only when a configured key and API are available.
 
-This prototype is not a certified clinical system or a HIPAA-compliant implementation. Production use requires HTTPS/TLS, server-side authentication and authorization, encrypted databases, retention and incident controls, validated clinical workflows, signed data-sharing and business associate arrangements where applicable, and review against NPC and DOH requirements.
+**Waze does not offer a general public embedded routing API/SDK.** CareRoute therefore implements Waze-style congestion scoring, traffic-colored corridors, turn-by-turn cues, alternate route comparison, and dynamic diversion/rerouting in its own routing engine. External Google Maps and Waze links are provided as optional handoff links; they are not embedded Waze services.
+
+The offline high-DPI canvas draws Valenzuela corridor geometry, labeled major roads, local traffic overlays, status-coded hospital pins, the recommended and dashed alternate route, origin, and a live simulated vehicle marker. This self-contained map uses no remote tiles. Its corridor geometry is a prototype model rather than a survey-grade GIS map.
+
+## Security, privacy, and regulatory alignment
+
+The prototype demonstrates role-separated Patient/Public, Rescue, and Hospital Administrator workspaces; a consent acknowledgment; minimum-necessary triage fields; generated transaction IDs; sanitized dynamic text; hashed demo session tokens; session timeout checks; and an audit log for sign-in, capacity, triage, routing, and navigation actions.
+
+These are educational safeguards inspired by **RA 10173 (Data Privacy Act of 2012)**, **RA 11223 (Universal Health Care Act)**, **DOH National Patient Navigation and Referral System (NPNRS)** principles, and HIPAA administrative, technical, and physical safeguard concepts. They are not a compliance certification. This prototype is not a hospital system, emergency dispatch service, or medical advice, and must not be used for real patient care. Production deployment requires server-side identity and authorization, HTTPS/TLS, encrypted storage and transfer, operational retention/incident controls, clinical validation, signed data-sharing and business associate agreements as applicable, and formal NPC/DOH and legal review.

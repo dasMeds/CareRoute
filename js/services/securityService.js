@@ -54,7 +54,21 @@ export const securityService = {
   sessionPayload(role) {
     return { role, startedAt: Date.now(), lastActivity: Date.now() };
   },
+  createSession({ role, account, facility, tokenHash }) {
+    if (!permissions[role] || !String(account || "").trim()) {
+      throw new Error("A recognized role and account are required.");
+    }
+    return {
+      ...this.sessionPayload(role),
+      account: this.sanitize(String(account).trim().slice(0, 80)),
+      facility: this.sanitize(String(facility || "").slice(0, 100)),
+      tokenHash
+    };
+  },
   isSessionLocked(session, timeoutMs) {
     return !session || Date.now() - (session.lastActivity || 0) > timeoutMs;
+  },
+  touchSession(session) {
+    return { ...session, lastActivity: Date.now() };
   }
 };

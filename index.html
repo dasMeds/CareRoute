@@ -17,14 +17,7 @@
           <span><strong>CareRoute</strong><small>Valenzuela City</small></span>
         </button>
         <div class="topbar-controls">
-          <label class="control-label">Role
-            <select id="roleSelect" class="compact-select">
-              <option value="">Role portal</option>
-              <option value="patient">Patient / Public</option>
-              <option value="rescue">Ambulance / Rescue</option>
-              <option value="admin">Hospital Admin</option>
-            </select>
-          </label>
+          <span id="sessionLabel" class="session-label hidden"></span>
           <label class="control-label">Map Mode
             <select id="mapModeSelect" class="compact-select">
               <option value="auto">Auto</option>
@@ -38,6 +31,7 @@
           </div>
           <button id="auditButton" class="icon-button" type="button" title="Compliance and audit">Audit</button>
           <button id="resetButton" class="icon-button" type="button" title="Reset demo data">Reset Demo Data</button>
+          <button id="signOutButton" class="icon-button hidden" type="button">Sign Out / Switch Account</button>
         </div>
       </header>
       <main id="mainContent" class="main-content"></main>
