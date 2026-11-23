@@ -42,7 +42,31 @@ export const storageService = {
     this.set(KEYS.hospitals, clone(HOSPITALS));
   },
   getHospitals() {
-    return this.get(KEYS.hospitals, HOSPITALS);
+    const saved = this.get(KEYS.hospitals, HOSPITALS);
+    if (!Array.isArray(saved)) return clone(HOSPITALS);
+    const byId = new Map(saved.map((hospital) => [hospital.id, hospital]));
+    const merged = HOSPITALS.map((defaults) => {
+      const current = byId.get(defaults.id);
+      if (!current) return clone(defaults);
+      byId.delete(defaults.id);
+      return {
+        ...defaults,
+        ...current,
+        specialties: Array.isArray(current.specialties) ? current.specialties : defaults.specialties,
+        specialtyAvailability: {
+          ...defaults.specialtyAvailability,
+          ...(current.specialtyAvailability || {})
+        },
+        lastUpdated: current.lastUpdated || defaults.lastUpdated
+      };
+    });
+    const additional = [...byId.values()].map((hospital) => ({
+      ...hospital,
+      specialties: Array.isArray(hospital.specialties) ? hospital.specialties : [],
+      specialtyAvailability: hospital.specialtyAvailability || {},
+      lastUpdated: hospital.lastUpdated || new Date().toISOString()
+    }));
+    return merged.concat(additional);
   },
   setHospitals(hospitals) {
     return this.set(KEYS.hospitals, hospitals);
@@ -53,7 +77,7 @@ export const storageService = {
   addTriage(entry) {
     const list = this.getTriage();
     list.unshift(entry);
-    this.set(KEYS.triage, list);
+    return this.set(KEYS.triage, list);
   },
   getTransport() {
     return this.get(KEYS.transport, null);

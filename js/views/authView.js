@@ -1,4 +1,5 @@
 import { icon } from "../../assets/icons.js";
+import { storageService } from "../services/storageService.js";
 
 export function renderAuth() {
   return `
@@ -27,7 +28,7 @@ export function renderAuth() {
               <select id="authFacility" name="facility"></select>
             </div>
             <label class="acknowledgment"><input id="privacyAck" name="privacyAck" type="checkbox" required>
-              <span>I acknowledge the RA 10173 privacy notice and HIPAA-inspired minimum-necessary safeguards. I will not enter unnecessary personal identifiers or clinical narratives.</span>
+              <span>I acknowledge the RA 10173 privacy notice and HIPAA-inspired minimum-necessary safeguards. I will not enter patient identifiers or unnecessary details.</span>
             </label>
             <button type="submit" class="primary-button sign-in-button">Sign In</button>
             <button id="autofillCredentials" type="button" class="text-button">Autofill Credentials for evaluation</button>
@@ -51,14 +52,7 @@ export function initAuth(onSignIn) {
       ["lgu-rescue-02", "Valenzuela LGU Rescue Unit 02"],
       ["valenzuela-ambulance", "Valenzuela Medical Center Ambulance"]
     ],
-    admin: [
-      ["vmc", "Valenzuela Medical Center"],
-      ["vceh", "Valenzuela City Emergency Hospital"],
-      ["ace", "ACE Medical Center - Valenzuela"],
-      ["fumc", "Fatima University Medical Center"],
-      ["citicare", "Valenzuela Citicare Medical Center"],
-      ["calalang", "Calalang General Hospital"]
-    ]
+    admin: storageService.getHospitals().map((hospital) => [hospital.id, hospital.name])
   };
   const refreshFacility = () => {
     const options = facilities[role.value];

@@ -14,10 +14,10 @@ export function renderRescue() {
         <button type="button" class="secondary-button" data-open-advanced>${icon("shield", 16)} Advanced triage</button>
       </div>
       <div class="panel dispatch-toolbar">
-        <div class="field"><label for="rescueStart">Starting location</label><select id="rescueStart">${mapService.startingPoints.map((point, index) => `<option value="${index}">${point.name}</option>`).join("")}</select></div>
+        <div class="field"><label for="rescueStart">Starting location</label><select id="rescueStart"><option value="gps">My Current GPS Location</option>${mapService.startingPoints.map((point, index) => `<option value="${index}">${point.name}</option>`).join("")}</select></div>
         <button type="button" id="useGps" class="secondary-button">${icon("map", 16)} Use GPS</button>
-        <button type="button" id="trafficToggle" class="secondary-button">Traffic Layer: On</button>
-        <div class="field"><label for="trafficScenario">Simulated traffic</label><select id="trafficScenario">${Object.entries(mapService.scenarios).map(([key, value]) => `<option value="${key}">${value.label}</option>`).join("")}</select></div>
+        <button type="button" id="trafficToggle" class="secondary-button">Traffic Overlay: On</button>
+        <span id="trafficStatus" class="status-badge moderate">Offline Estimate</span>
       </div>
       <div class="map-layout" style="margin-top:12px">
         <section>
@@ -37,9 +37,13 @@ export function initRescue(app) {
   let timer = null;
   let navigationState = "idle";
   let stepIndex = 0;
+  let activeTriageId = null;
+  let lastTransportWriteAt = 0;
+  let routeRequest = 0;
   const map = document.querySelector("#rescueMap");
   const panel = document.querySelector("#rescueRoutePanel");
   const summary = document.querySelector("#navigationSummary");
+  document.querySelector("#rescueStart").value = "0";
   const storedTransport = storageService.getTransport();
   if (storedTransport?.hospitalId === destination.id) {
     navigationState = storedTransport.status === "Handed Over" ? "complete" : "paused";
@@ -51,26 +55,28 @@ export function initRescue(app) {
     return available[0] || null;
   }
 
-  function setTransportStatus(status) {
+  function setTransportStatus(status, force = false) {
+    if (!force && status === "En Route" && Date.now() - lastTransportWriteAt < 10000) return;
     const previous = storageService.getTransport();
-    storageService.setTransport({
+    const progress = mapService.currentNavigation?.progress || 0;
+    const saved = storageService.set(storageService.keys.transport, {
       ...(previous || {}),
       hospitalId: destination.id,
       hospitalName: destination.name,
+      triageId: activeTriageId || (previous?.hospitalId === destination.id ? previous.triageId : null),
       status,
+      etaRemaining: routeResult ? Math.max(0, Math.ceil(routeResult.primary.eta * (1 - progress))) : null,
       updatedAt: new Date().toISOString()
     });
+    if (saved) lastTransportWriteAt = Date.now();
   }
 
   function routeActions() {
-    const links = mapService.externalLink(destination, start);
     return `
       <div class="navigation-controls">
         <button type="button" class="primary-button" id="navigationToggle">${navigationState === "running" ? "Pause Navigation" : "Start Navigation"}</button>
         <button type="button" class="secondary-button" id="stepForward">Step Forward</button>
         <button type="button" class="secondary-button" id="resetRoute">Reset Route</button>
-        <button type="button" class="secondary-button" id="googleLink">Google Maps</button>
-        <button type="button" class="secondary-button" id="wazeLink">Waze</button>
       </div>`;
   }
 
@@ -92,17 +98,16 @@ export function initRescue(app) {
         <div class="route-option recommended-route">
           <div class="session-row"><strong>${routeResult.recommended ? "Primary recommended route" : "Route to selected facility (diverting)"}</strong><span class="status-badge ${routeResult.recommended ? "available" : "full"}">${routeResult.recommended ? "Accepting" : "Divert"}</span></div>
           <div class="grid-3">
-            <div class="metric"><span>Road distance</span><strong>${routeResult.primary.distanceKm.toFixed(1)} km</strong></div>
-            <div class="metric"><span>Estimated travel</span><strong>${routeResult.primary.eta} min</strong></div>
-            <div class="metric"><span>Avg speed</span><strong>${routeResult.primary.speedKmh} km/h</strong></div>
+            <div class="metric"><span>Distance</span><strong>${routeResult.primary.distanceKm.toFixed(1)} km</strong></div>
+            <div class="metric"><span>ETA</span><strong>${routeResult.primary.eta} min</strong></div>
           </div>
-          <small>${routeResult.source === "OSRM" ? "OSRM street-following route" : "Offline Valenzuela road-grid estimate"} · ${routeResult.scenario.label}</small>
+          <small>${routeResult.source === "OSRM" ? "OSRM street-following route duration estimate" : "Offline Valenzuela road-grid estimate"} · ${routeResult.scenario.label}</small>
         </div>
         ${routeResult.alternative ? `<div class="route-option alternative-route">
           <div class="session-row"><strong>Alternative route</strong><span>${routeResult.alternative.distanceKm.toFixed(1)} km</span></div>
-          <p>${routeResult.alternative.eta} min · ETA ${routeResult.alternative.eta - routeResult.primary.eta >= 0 ? "+" : ""}${routeResult.alternative.eta - routeResult.primary.eta} min vs primary · ${routeResult.scenario.label === "Clear Corridors" ? "Maysan Rd alternate corridor" : "Lower congestion via alternate corridor"}</p>
+          <p>${routeResult.alternative.eta} min · ETA ${routeResult.alternative.eta - routeResult.primary.eta >= 0 ? "+" : ""}${routeResult.alternative.eta - routeResult.primary.eta} min vs primary · ${securityService.sanitize(routeResult.alternative.label || "Alternative corridor")}</p>
         </div>` : ""}
-        <div class="traffic-note">${routeResult.source === "OSRM" ? "OSRM receives origin and destination coordinates only. Do not route from patient-identifying locations. Live traffic data is not included." : "Offline routing uses the local Valenzuela road-grid estimate."}</div>
+        <div class="traffic-note">${routeResult.source === "OSRM" ? "Traffic category uses returned OSRM route duration; the public OSRM service does not provide verified incidents. Only coordinates are sent." : "Offline traffic is estimated from time of day and local corridor telemetry."}</div>
         <div class="current-instruction" id="currentInstruction"></div>
         <ol class="step-list directions-list" id="directionsList">${routeResult.primary.steps.map((step, index) => `
           <li class="${index === stepIndex ? "current-step" : ""}" data-direction-step="${index}">
@@ -132,9 +137,6 @@ export function initRescue(app) {
     document.querySelector("#navigationToggle")?.addEventListener("click", toggleNavigation);
     document.querySelector("#stepForward")?.addEventListener("click", stepForward);
     document.querySelector("#resetRoute")?.addEventListener("click", resetNavigation);
-    const links = mapService.externalLink(destination, start);
-    document.querySelector("#googleLink")?.addEventListener("click", () => window.open(links.google, "_blank", "noopener"));
-    document.querySelector("#wazeLink")?.addEventListener("click", () => window.open(links.waze, "_blank", "noopener"));
     renderNavigationSummary();
   }
 
@@ -167,9 +169,11 @@ export function initRescue(app) {
   }
 
   async function renderRoute() {
+    const request = ++routeRequest;
     const wasRunning = navigationState === "running";
     pauseNavigation();
     let result = await mapService.calculateRoute(start, destination);
+    if (request !== routeRequest) return;
     if (wasRunning && (destination.available <= 0 || destination.status === "Full / Diverting")) {
       const alternate = closestOpenHospital(destination.id);
       if (alternate) {
@@ -177,15 +181,22 @@ export function initRescue(app) {
         app.toast(`Diversion alert: automatically rerouted to ${alternate.name}.`);
         securityService.audit("AUTOMATIC_REROUTE", "rescue", `Rerouted to ${alternate.name} after destination became unavailable`);
         result = await mapService.calculateRoute(start, destination);
+        if (request !== routeRequest) return;
       }
     }
-    if (app.currentRole !== "rescue" || !map.isConnected) return;
+    if (request !== routeRequest || app.currentRole !== "rescue" || !map.isConnected) return;
     routeResult = result;
     if (!routeResult.primary.steps.length) {
       routeResult.primary.steps = [{ maneuver: "depart", instruction: "Proceed to the destination", road: "Local roads", distanceKm: routeResult.primary.distanceKm }];
     }
     stepIndex = Math.min(stepIndex, routeResult.primary.steps.length - 1);
     await mapService.render(map, { start, destination });
+    if (request !== routeRequest) return;
+    const trafficStatus = document.querySelector("#trafficStatus");
+    if (trafficStatus) {
+      trafficStatus.textContent = routeResult.trafficMode === "live" ? "Live Traffic Active" : "Offline Estimate";
+      trafficStatus.className = `status-badge ${routeResult.trafficMode === "live" ? "available" : "moderate"}`;
+    }
     renderPanel();
   }
 
@@ -259,36 +270,38 @@ export function initRescue(app) {
     renderPanel();
   }
 
+  function acquireGps() {
+    if (!navigator.geolocation) return app.toast("GPS is unavailable in this browser. Choose a Valenzuela landmark.");
+    navigator.geolocation.getCurrentPosition((position) => {
+      start = { name: "My Current GPS Location", lat: safeNumber(position.coords.latitude, NaN), lng: safeNumber(position.coords.longitude, NaN) };
+      if (!Number.isFinite(start.lat) || !Number.isFinite(start.lng)) return app.toast("GPS returned invalid coordinates.");
+      document.querySelector("#rescueStart").value = "gps";
+      resetNavigation();
+      app.toast("GPS location acquired.");
+      renderRoute();
+    }, () => {
+      const landmarkIndex = mapService.startingPoints.indexOf(start);
+      document.querySelector("#rescueStart").value = String(landmarkIndex >= 0 ? landmarkIndex : 0);
+      app.toast("GPS permission denied or unavailable. Using the selected Valenzuela landmark.");
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+  }
   document.querySelector("#rescueStart").addEventListener("change", (event) => {
+    if (event.target.value === "gps") return acquireGps();
     start = mapService.startingPoints[safeNumber(event.target.value)];
     resetNavigation();
     renderRoute();
   });
-  document.querySelector("#useGps").addEventListener("click", () => {
-    if (!navigator.geolocation) return app.toast("GPS is unavailable in this browser.");
-    navigator.geolocation.getCurrentPosition((position) => {
-      const lat = safeNumber(position.coords.latitude, null);
-      const lng = safeNumber(position.coords.longitude, null);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < 14.63 || lat > 14.78 || lng < 120.92 || lng > 121.02) {
-        app.toast("GPS unavailable in Valenzuela demo coverage. Using the selected starting point.");
-        return;
-      }
-      start = { name: "Current GPS position", lat, lng };
-      resetNavigation();
-      app.toast("GPS location acquired.");
-      renderRoute();
-    }, () => app.toast("GPS permission denied or unavailable. Using the selected starting point."), { enableHighAccuracy: true, timeout: 10000 });
-  });
+  document.querySelector("#useGps").addEventListener("click", acquireGps);
   document.querySelector("#trafficToggle").addEventListener("click", (event) => {
     mapService.setTrafficEnabled(!mapService.trafficEnabled);
-    event.currentTarget.textContent = `Traffic Layer: ${mapService.trafficEnabled ? "On" : "Off"}`;
+    event.currentTarget.textContent = `Traffic Overlay: ${mapService.trafficEnabled ? "On" : "Off"}`;
     renderRoute();
   });
-  document.querySelector("#trafficScenario").addEventListener("change", (event) => {
-    mapService.setScenario(event.target.value);
-    renderRoute();
-  });
-  document.querySelector("[data-open-advanced]").addEventListener("click", () => openAdvanced(app, destination));
+  document.querySelector("[data-open-advanced]").addEventListener("click", () =>
+    openAdvanced(app, destination, routeResult?.primary.eta, (entry) => {
+      activeTriageId = entry.id;
+      setTransportStatus("En Route", true);
+    }));
   map.addEventListener("hospital:select", (event) => {
     const hospital = storageService.getHospitals().find((item) => item.id === event.detail.id);
     if (!hospital) return;
@@ -305,24 +318,43 @@ export function initRescue(app) {
     renderRoute();
   });
   renderRoute();
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition((position) => {
+      start = { name: "My Current GPS Location", lat: position.coords.latitude, lng: position.coords.longitude };
+      document.querySelector("#rescueStart").value = "gps";
+      renderRoute();
+    }, () => {
+      document.querySelector("#rescueStart").value = "0";
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 });
+  }
 }
 
-function openAdvanced(app, hospital) {
+function openAdvanced(app, hospital, routeEta, onSubmitted) {
   app.openModal(`
     <div class="modal-backdrop">
-      <section class="panel" style="width:min(680px,94vw)">
+      <section class="panel triage-modal">
         <div class="panel-header"><h2>Advanced Pre-Arrival Digital Triage</h2><button type="button" class="secondary-button" data-close-modal>Close</button></div>
         <form id="advancedTriageForm" class="panel-body">
           <div class="field-grid">
-            <div class="field"><label>Chief complaint category</label><select name="complaint"><option>Chest pain</option><option>Breathing difficulty</option><option>Trauma / injury</option><option>Neurologic concern</option><option>Other urgent concern</option></select></div>
-            <div class="field"><label>BP (systolic/diastolic)</label><input name="bp" pattern="[0-9]{2,3}/[0-9]{2,3}" placeholder="120/80" required></div>
-            <div class="field"><label>Heart rate</label><input name="hr" type="number" min="20" max="240" required></div>
-            <div class="field"><label>SpO2 (%)</label><input name="spo2" type="number" min="50" max="100" required></div>
-            <div class="field"><label>GCS / consciousness</label><select name="gcs"><option>Alert</option><option>Voice</option><option>Pain</option><option>Unresponsive</option></select></div>
-            <div class="field"><label>Trauma / condition</label><select name="condition"><option>Medical</option><option>Trauma</option><option>Cardiac</option><option>Obstetric</option><option>Pediatric</option></select></div>
-            <div class="field full"><label>Target ETA (minutes)</label><input name="eta" type="number" min="1" max="180" value="15" required></div>
+            <div class="field"><label>Age (years)</label><input name="age" type="number" min="0" max="120" required></div>
+            <div class="field"><label>Sex</label><select name="sex"><option>Prefer not to state</option><option>Female</option><option>Male</option><option>Other</option></select></div>
+            <div class="field"><label>Weight (kg)</label><input name="weight" type="number" min="0.5" max="400" step="0.1"></div>
+            <div class="field"><label>Height (cm)</label><input name="height" type="number" min="30" max="250" step="0.1"></div>
+            <div class="field full"><label>Chief complaint</label><select name="complaint"><option>Chest pain</option><option>Breathing difficulty</option><option>Trauma / injury</option><option>Fever / infection</option><option>Neurologic concern</option><option>Pregnancy / maternity</option><option>Other</option></select></div>
+            <div class="field"><label>Pain scale (1–10)</label><input name="pain" type="number" min="1" max="10" value="1"></div>
+            <div class="field"><label>Consciousness (AVPU)</label><select name="avpu"><option>Alert</option><option>Voice</option><option>Pain</option><option>Unresponsive</option></select></div>
+            <div class="field"><label>Blood pressure (mmHg)</label><input name="bp" pattern="[0-9]{2,3}/[0-9]{2,3}" placeholder="120/80" required></div>
+            <div class="field"><label>Heart rate (bpm)</label><input name="hr" type="number" min="20" max="240" required></div>
+            <div class="field"><label>Respiratory rate (/min)</label><input name="rr" type="number" min="1" max="80" required></div>
+            <div class="field"><label>SpO₂ (%)</label><input name="spo2" type="number" min="50" max="100" required></div>
+            <div class="field"><label>Temperature (°C)</label><input name="temperature" type="number" min="25" max="45" step="0.1" required></div>
+            <div class="field"><label>Glasgow Coma Scale (3–15)</label><input name="gcs" type="number" min="3" max="15" required></div>
+            <div class="field"><label>ESI / acuity level</label><select name="esi"><option value="1">Level 1 · Resuscitation</option><option value="2">Level 2 · Emergent</option><option value="3" selected>Level 3 · Urgent</option><option value="4">Level 4 · Less urgent</option><option value="5">Level 5 · Non-urgent</option></select></div>
+            <div class="field full"><label>Pre-hospital interventions</label><textarea name="interventions" maxlength="500" rows="2" placeholder="Interventions performed"></textarea></div>
+            <div class="field full"><label>Clinical handoff notes (no name, ID, or address)</label><textarea name="notes" maxlength="1000" rows="3" placeholder="Relevant clinical handoff details"></textarea></div>
+            <div class="field full"><label>Target facility</label><input value="${securityService.sanitize(hospital.name)}" readonly></div>
           </div>
-          <p class="notice" style="margin:12px 0">Core triage data only. Do not enter names, government IDs, addresses, or raw narrative notes.</p>
+          <p class="notice" style="margin:12px 0">This prototype stores handoff data in this browser's local storage. Do not include patient identifiers. ESI and vitals are recorded as supplied; no clinical scoring or advice is provided.</p>
           <button class="primary-button" type="submit">Submit pre-arrival triage</button>
         </form>
       </section>
@@ -336,18 +368,32 @@ function openAdvanced(app, hospital) {
       source: "Ambulance",
       hospitalId: hospital.id,
       hospitalName: hospital.name,
+      age: safeNumber(data.age),
+      sex: data.sex,
+      weightKg: data.weight ? safeNumber(data.weight) : null,
+      heightCm: data.height ? safeNumber(data.height) : null,
       complaint: data.complaint,
+      pain: safeNumber(data.pain),
+      avpu: data.avpu,
       bp: data.bp,
       hr: safeNumber(data.hr),
+      rr: safeNumber(data.rr),
       spo2: safeNumber(data.spo2),
-      gcs: data.gcs,
-      condition: data.condition,
-      eta: safeNumber(data.eta),
-      severity: safeNumber(data.spo2) < 90 || data.gcs !== "Alert" ? "High" : "Moderate",
+      temperatureC: safeNumber(data.temperature),
+      gcs: safeNumber(data.gcs),
+      esi: safeNumber(data.esi),
+      preHospitalInterventions: data.interventions.trim(),
+      notes: data.notes.trim(),
+      eta: safeNumber(routeEta),
+      severity: `ESI ${data.esi}`,
       status: "En Route",
       createdAt: new Date().toISOString()
     };
-    storageService.addTriage(entry);
+    if (!storageService.addTriage(entry)) {
+      app.toast("Unable to save the triage packet in local storage.");
+      return;
+    }
+    onSubmitted?.(entry);
     securityService.audit("ADVANCED_TRIAGE_SUBMITTED", "rescue", `${entry.id} sent to ${hospital.name}`);
     app.closeModal();
     app.toast(`${entry.id} submitted to ${hospital.name}.`);

@@ -46,10 +46,11 @@ class CareRouteApp {
       if (this.currentRole) this.navigate(this.currentRole);
     });
     window.addEventListener("storage", (event) => {
-      if (event.key?.startsWith("careroute.") && this.currentRole) this.navigate(this.currentRole);
-    });
-    window.addEventListener("careroute:data", (event) => {
-      if (event.detail.key === storageService.keys.hospitals && this.currentRole) this.navigate(this.currentRole);
+      if (event.key === storageService.keys.session && this.currentRole) {
+        this.restoreSession();
+      } else if (event.key?.startsWith("careroute.")) {
+        window.dispatchEvent(new CustomEvent("careroute:data", { detail: { key: event.key } }));
+      }
     });
   }
 
