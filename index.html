@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0F172A">
+    <title>CareRoute | Valenzuela Hospital Capacity</title>
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/components.css">
+  </head>
+  <body>
+    <div id="app" class="app-shell" aria-live="polite">
+      <header class="topbar">
+        <button class="brand" id="brandButton" aria-label="Return to role portal">
+          <span class="brand-mark" aria-hidden="true">+</span>
+          <span><strong>CareRoute</strong><small>Valenzuela City</small></span>
+        </button>
+        <div class="topbar-controls">
+          <label class="control-label">Role
+            <select id="roleSelect" class="compact-select">
+              <option value="">Role portal</option>
+              <option value="patient">Patient / Public</option>
+              <option value="rescue">Ambulance / Rescue</option>
+              <option value="admin">Hospital Admin</option>
+            </select>
+          </label>
+          <label class="control-label">Map Mode
+            <select id="mapModeSelect" class="compact-select">
+              <option value="auto">Auto</option>
+              <option value="google">Google Maps API</option>
+              <option value="offline">Offline Fallback</option>
+            </select>
+          </label>
+          <div class="segmented" aria-label="Viewport size">
+            <button id="mobileView" type="button">Mobile Frame</button>
+            <button id="desktopView" type="button" class="active">Desktop View</button>
+          </div>
+          <button id="auditButton" class="icon-button" type="button" title="Compliance and audit">Audit</button>
+          <button id="resetButton" class="icon-button" type="button" title="Reset demo data">Reset Demo Data</button>
+        </div>
+      </header>
+      <main id="mainContent" class="main-content"></main>
+    </div>
+    <div id="toastRegion" class="toast-region" role="status"></div>
+    <div id="modalRegion"></div>
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
