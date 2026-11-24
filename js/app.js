@@ -55,9 +55,18 @@ class CareRouteApp {
   }
 
   setViewport(view) {
+    this.viewport = view;
     document.querySelector("#mobileView").classList.toggle("active", view === "mobile");
     document.querySelector("#desktopView").classList.toggle("active", view === "desktop");
     document.querySelector("#mainContent .page")?.classList.toggle("mobile-layout", view === "mobile");
+    requestAnimationFrame(() => {
+      if (mapService.leafletMap) {
+        mapService.leafletMap.invalidateSize();
+        mapService.recenter();
+      } else if (mapService.canvas) {
+        mapService.drawCanvas();
+      }
+    });
   }
 
   renderAuth() {
@@ -123,6 +132,9 @@ class CareRouteApp {
       if (!securityService.require(role, "capacity.manage")) return this.renderAuth();
       this.main.innerHTML = renderAdmin();
       initAdmin(this);
+    }
+    if (this.viewport === "mobile") {
+      this.setViewport("mobile");
     }
   }
 

@@ -416,3 +416,97 @@
   font-size: 11px;
   font-weight: 700;
 }
+
+
+.route-option .grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.route-option .metric {
+  min-width: 0;
+  padding: 8px 10px;
+}
+.route-option .metric span {
+  display: block;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.route-option .metric strong {
+  display: block;
+  font-size: 16px;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.navigation-summary .grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.navigation-summary .metric {
+  min-width: 0;
+  padding: 8px 10px;
+}
+.navigation-summary .metric strong {
+  font-size: 15px;
+  white-space: nowrap;
+}
+.page.mobile-layout .dispatch-toolbar {
+  gap: 8px;
+}
+.page.mobile-layout .dispatch-toolbar button,
+.page.mobile-layout .dispatch-toolbar .status-badge {
+  flex: 1 1 auto;
+  text-align: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+.page.mobile-layout .navigation-controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.page.mobile-layout .navigation-controls button:first-child {
+  grid-column: 1 / -1;
+  min-height: 44px;
+  border-radius: 999px;
+  font-size: 14px;
+}
+.page.mobile-layout .navigation-controls button:not(:first-child) {
+  min-height: 38px;
+  border-radius: 999px;
+}
+.page.mobile-layout .route-option,
+.page.mobile-layout .current-instruction {
+  border-radius: 14px;
+}
+.page.mobile-layout .directions-list {
+  max-height: 220px;
+}
+.page.mobile-layout .hospital-list {
+  max-height: none;
+}
+@media (max-width: 900px) {
+  .navigation-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+  .navigation-controls button:first-child {
+    grid-column: 1 / -1;
+    min-height: 44px;
+    border-radius: 999px;
+    font-size: 14px;
+  }
+  .navigation-controls button:not(:first-child) {
+    min-height: 38px;
+    border-radius: 999px;
+  }
+  .route-option,
+  .current-instruction {
+    border-radius: 14px;
+  }
+  .hospital-list {
+    max-height: none;
+  }
+}
