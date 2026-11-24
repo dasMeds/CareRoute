@@ -5,8 +5,8 @@ export function renderAuth() {
   return `
     <section class="auth-page">
       <div class="auth-intro">
-        <div class="brand-mark auth-mark" aria-hidden="true">+</div>
-        <h1>CareRoute Sign-In</h1>
+        <div class="auth-wordmark" aria-label="CareRoute">Care<span>Route</span></div>
+        <h1>Sign in to CareRoute</h1>
         <p>Valenzuela City hospital capacity and patient navigation</p>
       </div>
       <div class="auth-form-wrap">
