@@ -1,6 +1,8 @@
-// src/services/mapService.js
+// js/services/mapService.js
 
 import { storageService } from "./storageService.js";
+
+const DEFAULT_TRAFFIC_API_KEY = "Td7NkxMVT7JOeJkDvMwLKPgnle0wtHrU";
 
 const STARTING_POINTS = [
   { name: "PLV Maysan Campus", lat: 14.7113, lng: 120.9734 },
@@ -49,7 +51,7 @@ function localTrafficScenario() {
   const shoulder = weekday && ((hour >= 6 && hour < 7) || (hour >= 10 && hour < 12) || (hour >= 15 && hour < 16));
   const base = rushHour ? 1.35 : shoulder ? 1.12 : 1;
   return {
-    label: "Time-of-day corridor estimate",
+    label: "Corridor traffic estimate",
     roads: {
       "MacArthur Highway": base * 1.08,
       NLEX: base,
@@ -144,12 +146,12 @@ function makeRoute(start, destination, scenario, excludedEdge = "", penalizedRoa
         { lat: finite(start?.lat, 14.7011), lng: finite(start?.lng, 120.983) },
         { lat: finite(destination?.lat, 14.7011), lng: finite(destination?.lng, 120.983) }
       ],
-      segments: [{ road: "Local connector", distanceKm: directDistance, speedKmh: 25, from: start, to: destination, congestion: "Smooth" }],
+      segments: [{ road: "Local road", distanceKm: directDistance, speedKmh: 25, from: start, to: destination, congestion: "Smooth" }],
       distanceKm: Number(directDistance.toFixed(2)),
       eta,
       speedKmh: Number((directDistance / (eta / 60)).toFixed(1)),
       hasCongestion: false,
-      steps: [{ maneuver: "depart", instruction: "Follow local roads toward the destination", road: "Local connector", distanceKm: Number(directDistance.toFixed(2)), congestion: "Smooth" }]
+      steps: [{ maneuver: "depart", instruction: "Head along local road toward destination", road: "Local road", distanceKm: Number(directDistance.toFixed(2)), congestion: "Smooth" }]
     };
   }
 
@@ -162,7 +164,7 @@ function makeRoute(start, destination, scenario, excludedEdge = "", penalizedRoa
   path.edges.forEach(([a, b, road, speed]) => {
     const km = distanceKm(NODES[a], NODES[b]);
     const congestion = finite(scenario.roads?.[road], 1);
-    if (congestion > 1.25) hasCongestion = true;
+    if (congestion > 1.2) hasCongestion = true;
     const actualSpeed = Math.max(10, finite(speed, 30) / congestion);
     totalKm += km;
     weightedMinutes += (km / actualSpeed) * 60;
@@ -172,7 +174,7 @@ function makeRoute(start, destination, scenario, excludedEdge = "", penalizedRoa
       speedKmh: actualSpeed,
       from: NODES[a],
       to: NODES[b],
-      congestion: congestion > 1.45 ? "Heavy" : congestion > 1.1 ? "Moderate" : "Smooth"
+      congestion: congestion > 1.45 ? "Heavy" : congestion > 1.15 ? "Moderate" : "Smooth"
     });
   });
 
@@ -184,7 +186,7 @@ function makeRoute(start, destination, scenario, excludedEdge = "", penalizedRoa
   const eta = Math.max(1, Math.round(finite(weightedMinutes, totalKm * 2.5)));
 
   if (!segments.length) {
-    segments.push({ road: "Local connector", distanceKm: totalKm, speedKmh: totalKm / (eta / 60), from: start, to: destination, congestion: "Smooth" });
+    segments.push({ road: "Local road", distanceKm: totalKm, speedKmh: totalKm / (eta / 60), from: start, to: destination, congestion: "Smooth" });
   }
 
   return {
@@ -220,14 +222,14 @@ function maneuverInstruction(type, modifier, road) {
   const cleanRoad = road && road !== "Unnamed road" ? road : "local road";
   const location = ` onto ${cleanRoad}`;
   if (type === "depart") return `Head${direction}${location}`;
-  if (type === "arrive") return "Arrive at your destination";
+  if (type === "arrive") return "Arrive at destination";
   if (type === "turn") return `Turn${direction}${location}`;
   if (type === "merge") return `Merge${direction}${location}`;
-  if (type === "on ramp") return `Take the ramp${direction}${location}`;
-  if (type === "off ramp") return `Take the exit${direction}${location}`;
-  if (type === "roundabout" || type === "rotary") return `Enter the roundabout${direction}${location}`;
+  if (type === "on ramp") return `Take ramp${direction}${location}`;
+  if (type === "off ramp") return `Take exit${direction}${location}`;
+  if (type === "roundabout" || type === "rotary") return `Enter roundabout${direction}${location}`;
   if (type === "fork") return `Keep${direction}${location}`;
-  if (type === "end of road") return `At the end of the road, turn${direction}${location}`;
+  if (type === "end of road") return `Turn${direction}${location}`;
   if (type === "new name") return `Continue${location}`;
   return `Continue on ${cleanRoad}`;
 }
@@ -267,6 +269,8 @@ function normalizeOsrmRoute(route) {
   const distanceKm = Math.max(0.1, finite(route.distance, 0) / 1000);
   const eta = Math.max(1, Math.round(Math.max(0, finite(route.duration, 0)) / 60));
   const speedKmh = Number((distanceKm / (eta / 60)).toFixed(1));
+  const hasCongestion = steps.some((step) => step.congestion !== "Smooth");
+
   return {
     points,
     segments: steps.map((step) => ({
@@ -278,14 +282,14 @@ function normalizeOsrmRoute(route) {
     distanceKm: Number(distanceKm.toFixed(2)),
     eta,
     speedKmh: Number.isFinite(speedKmh) ? speedKmh : 0,
-    hasCongestion: steps.some((step) => step.congestion !== "Smooth"),
+    hasCongestion,
     steps: steps.length
       ? steps
       : [{
           maneuver: "arrive",
           maneuverType: "arrive",
           maneuverModifier: "",
-          instruction: "Arrive at your destination",
+          instruction: "Arrive at destination",
           road: "Destination",
           distanceKm: 0,
           points: []
@@ -293,12 +297,38 @@ function normalizeOsrmRoute(route) {
   };
 }
 
+function applyTrafficRedirect(primary, alternative, autoReroute) {
+  if (!alternative) {
+    return { primary, alternative: null, rerouted: false, rerouteReason: "" };
+  }
+
+  const primaryHasTraffic = Boolean(
+    primary.hasCongestion || primary.steps?.some((s) => s.congestion === "Heavy" || s.congestion === "Moderate")
+  );
+  const altHasLessTraffic = !alternative.hasCongestion || alternative.eta < primary.eta;
+
+  if (autoReroute && primaryHasTraffic && altHasLessTraffic) {
+    const saved = Math.max(1, primary.eta - alternative.eta);
+    return {
+      primary: { ...alternative, label: "Redirected (Traffic Avoided)" },
+      alternative: { ...primary, label: "Congested route" },
+      rerouted: true,
+      rerouteReason: saved > 0 ? `Traffic ahead · ${saved} min faster` : "Traffic ahead · clearer road"
+    };
+  }
+
+  return { primary, alternative, rerouted: false, rerouteReason: "" };
+}
+
 export const mapService = {
   startingPoints: STARTING_POINTS,
   mode: "auto",
-  mapStyle: "navigation", // "navigation" | "streets" | "satellite"
+  mapStyle: "navigation",
   autoReroute: true,
   trafficEnabled: true,
+  trafficApiKey: DEFAULT_TRAFFIC_API_KEY,
+  gpsWatchId: null,
+  liveGpsPosition: null,
   animation: null,
   progressAnimation: null,
   currentNavigation: null,
@@ -307,10 +337,38 @@ export const mapService = {
   leafletMap: null,
   leafletRouteLayers: [],
   vehicleMarker: null,
+  gpsAccuracyCircle: null,
   visualProgress: 0,
   forceOffline: false,
   renderToken: 0,
   routeCalculationToken: 0,
+
+  getTrafficApiKey() {
+    const candidates = [
+      this.trafficApiKey,
+      typeof window !== "undefined" ? window.CAREROUTE_TRAFFIC_KEY : "",
+      (() => {
+        try {
+          return typeof localStorage !== "undefined" ? localStorage.getItem("careroute.trafficApiKey") : "";
+        } catch {
+          return "";
+        }
+      })()
+    ];
+    for (const raw of candidates) {
+      const cleaned = String(raw || "").trim();
+      if (cleaned && cleaned !== "YOUR_TOMTOM_API_KEY") return cleaned;
+    }
+    return "";
+  },
+
+  setTrafficApiKey(apiKey) {
+    this.trafficApiKey = String(apiKey || "").trim();
+    try {
+      if (this.trafficApiKey) localStorage.setItem("careroute.trafficApiKey", this.trafficApiKey);
+      else localStorage.removeItem("careroute.trafficApiKey");
+    } catch {}
+  },
 
   effectiveMode() {
     return this.mode === "offline" || !navigator.onLine || this.forceOffline ? "offline" : "free";
@@ -320,8 +378,131 @@ export const mapService = {
     const p = clamp(progress, 0, 1);
     if (p <= 0) return { label: "Dispatched", banner: "Ready for dispatch", badgeClass: "status-dispatched" };
     if (p < 0.8) return { label: "En Route", banner: "Navigation in progress", badgeClass: "status-enroute" };
-    if (p < 1) return { label: "Arriving Soon", banner: "Approaching emergency bay", badgeClass: "status-arriving" };
-    return { label: "Handed Over", banner: "Navigation complete", badgeClass: "status-complete" };
+    if (p < 1) return { label: "Arriving Soon", banner: "Approaching bay", badgeClass: "status-arriving" };
+    return { label: "Handed Over", banner: "Complete", badgeClass: "status-complete" };
+  },
+
+  startGpsTracking(options = {}) {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      return { ok: false, reason: "GPS unavailable" };
+    }
+    if (this.gpsWatchId !== null) {
+      return { ok: true, watchId: this.gpsWatchId, position: this.liveGpsPosition };
+    }
+
+    this.gpsWatchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const coords = {
+          lat: finite(pos.coords?.latitude, STARTING_POINTS[0].lat),
+          lng: finite(pos.coords?.longitude, STARTING_POINTS[0].lng),
+          accuracy: finite(pos.coords?.accuracy, 15),
+          heading: pos.coords?.heading ?? null,
+          speedMps: pos.coords?.speed ?? null,
+          timestamp: pos.timestamp || Date.now()
+        };
+        this.liveGpsPosition = coords;
+
+        if (this.currentNavigation) {
+          this.currentNavigation.start = { lat: coords.lat, lng: coords.lng };
+          if (this.currentNavigation.destination) {
+            const dest = this.currentNavigation.destination;
+            const remainingKm = Math.max(0.05, distanceKm(coords, dest));
+            const totalKm = Math.max(remainingKm, finite(this.currentNavigation.primary?.distanceKm, remainingKm));
+            const progress = clamp(1 - remainingKm / totalKm, 0, 1);
+            this.currentNavigation.progress = progress;
+            this.currentNavigation.transportStatus = this.getTransportStatus(progress);
+            this.visualProgress = progress;
+
+            const offRoute = this.currentNavigation.primary?.points?.length
+              ? this.currentNavigation.primary.points.every((pt) => distanceKm(coords, pt) > 0.25)
+              : false;
+            if (this.autoReroute && offRoute && !this._reroutingInFlight) {
+              this._reroutingInFlight = true;
+              this.calculateRoute({ lat: coords.lat, lng: coords.lng }, dest).finally(() => {
+                this._reroutingInFlight = false;
+              });
+            }
+          }
+        }
+
+        if (this.effectiveMode() === "offline") this.drawCanvas();
+        else this.updateLeafletVehicle();
+
+        window.dispatchEvent(new CustomEvent("careroute:gps", { detail: coords }));
+      },
+      (err) => {
+        window.dispatchEvent(new CustomEvent("careroute:gps-error", { detail: { code: err?.code, message: err?.message || "GPS error" } }));
+      },
+      {
+        enableHighAccuracy: options.enableHighAccuracy ?? true,
+        maximumAge: options.maximumAge ?? 3000,
+        timeout: options.timeout ?? 10000
+      }
+    );
+
+    return { ok: true, watchId: this.gpsWatchId };
+  },
+
+  stopGpsTracking() {
+    if (this.gpsWatchId !== null && typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.clearWatch(this.gpsWatchId);
+      this.gpsWatchId = null;
+    }
+    if (this.gpsAccuracyCircle && this.leafletMap) {
+      this.gpsAccuracyCircle.remove();
+      this.gpsAccuracyCircle = null;
+    }
+  },
+
+  async fetchLiveTraffic(route, apiKey = this.getTrafficApiKey()) {
+    if (!apiKey || !navigator.onLine || !route?.points?.length) return null;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
+
+    try {
+      const sampleIndices = [0, Math.floor(route.points.length / 2), route.points.length - 1]
+        .filter((idx, i, arr) => idx >= 0 && idx < route.points.length && arr.indexOf(idx) === i);
+
+      const flowResponses = await Promise.all(
+        sampleIndices.map(async (idx) => {
+          const pt = route.points[idx];
+          const url = `https://api.tomtom.com/traffic/services/4/flowSegmentData/relative0/14/json?key=${encodeURIComponent(apiKey)}&point=${finite(pt.lat)},${finite(pt.lng)}&unit=KMPH`;
+          const res = await fetch(url, { signal: controller.signal, headers: { Accept: "application/json" } });
+          if (!res.ok) throw new Error(`TomTom Flow HTTP ${res.status}`);
+          return res.json();
+        })
+      );
+
+      const ratios = flowResponses
+        .map((data) => data?.flowSegmentData)
+        .filter((seg) => seg && finite(seg.freeFlowSpeed, 0) > 0 && finite(seg.currentSpeed, 0) > 0)
+        .map((seg) => clamp(finite(seg.freeFlowSpeed) / Math.max(5, finite(seg.currentSpeed)), 0.7, 3.0));
+
+      const avgFactor = ratios.length ? ratios.reduce((a, b) => a + b, 0) / ratios.length : 1;
+      const distanceKm = Math.max(0.1, finite(route.distanceKm, 0.5));
+      const baseEta = Math.max(1, finite(route.eta, Math.round((distanceKm / 30) * 60)));
+      const liveEta = Math.max(1, Math.round(baseEta * avgFactor));
+      const liveCongestion = congestionLabel(avgFactor);
+
+      const updatedSteps = (route.steps || []).map((step) => ({
+        ...step,
+        congestion: step.congestion === "Heavy" ? "Heavy" : liveCongestion
+      }));
+
+      return {
+        ...route,
+        eta: liveEta,
+        speedKmh: Number((distanceKm / Math.max(liveEta / 60, 1 / 60)).toFixed(1)),
+        hasCongestion: avgFactor > 1.2 || updatedSteps.some((s) => s.congestion !== "Smooth"),
+        steps: updatedSteps,
+        trafficMode: "live"
+      };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   findNearestAcceptingHospital(origin, excludeId = null) {
@@ -387,20 +568,20 @@ export const mapService = {
         `https://router.project-osrm.org/route/v1/driving/${coordinates}?overview=full&geometries=geojson&steps=true&alternatives=true`,
         { signal: controller.signal, headers: { Accept: "application/json" } }
       );
-      if (!response.ok) throw new Error(`OSRM returned HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`OSRM HTTP ${response.status}`);
       const payload = await response.json();
       if (payload.code !== "Ok" || !Array.isArray(payload.routes) || !payload.routes.length) {
-        throw new Error(`OSRM route unavailable: ${payload.code || "no routes"}`);
+        throw new Error(`OSRM unavailable: ${payload.code || "no routes"}`);
       }
       const routes = payload.routes.map((r) => normalizeOsrmRoute(r));
-      if (routes[0].points.length < 2) throw new Error("OSRM returned no route geometry");
+      if (routes[0].points.length < 2) throw new Error("No route geometry");
       return routes;
     } finally {
       clearTimeout(timeout);
     }
   },
 
-  switchToOffline(reason = "Map tile services unavailable") {
+  switchToOffline(reason = "Map tiles unavailable") {
     this.forceOffline = true;
     if (this.currentNavigation) this.currentNavigation.fallbackReason = reason;
     if (this.container?.isConnected) this.renderOffline(this.container, this.options || {});
@@ -411,6 +592,7 @@ export const mapService = {
     this.animation = null;
     this.canvas = null;
     this.vehicleMarker = null;
+    this.gpsAccuracyCircle = null;
     this.leafletRouteLayers = [];
     if (this.leafletMap) {
       this.leafletMap.off();
@@ -426,6 +608,10 @@ export const mapService = {
     this.options = options;
     this.cleanupActiveMap();
 
+    if (options.trackGps) {
+      this.startGpsTracking(options.gpsOptions);
+    }
+
     if (this.effectiveMode() === "free") {
       const loaded = await this.loadLeaflet();
       if (token !== this.renderToken || !container.isConnected) return;
@@ -434,7 +620,7 @@ export const mapService = {
           this.renderLeaflet(container, options);
           return;
         } catch (err) {
-          this.switchToOffline(err?.message || "Leaflet map failed to initialize");
+          this.switchToOffline(err?.message || "Map failed to load");
           return;
         }
       }
@@ -443,18 +629,16 @@ export const mapService = {
       }
     }
 
-    if (this.forceOffline && this.currentNavigation && !this.currentNavigation.fallbackReason) {
-      this.currentNavigation.fallbackReason = "Leaflet could not be loaded";
-    }
     this.renderOffline(container, options);
   },
 
   route(start, destination) {
-    const safeStart = { lat: finite(start?.lat, STARTING_POINTS[0].lat), lng: finite(start?.lng, STARTING_POINTS[0].lng) };
+    const baseOrigin = this.liveGpsPosition || start;
+    const safeStart = { lat: finite(baseOrigin?.lat, STARTING_POINTS[0].lat), lng: finite(baseOrigin?.lng, STARTING_POINTS[0].lng) };
     const hospital = destination || { lat: 14.7011, lng: 120.983, available: 1 };
     const scenario = localTrafficScenario();
 
-    const directRoute = makeRoute(safeStart, hospital, scenario, "", {}, "Primary local route");
+    const directRoute = makeRoute(safeStart, hospital, scenario, "", {}, "Primary route");
     const originNode = closestNode(safeStart);
     const destinationNode = closestNode(hospital);
     const primaryPath = shortestPath(originNode, destinationNode, scenario);
@@ -463,28 +647,27 @@ export const mapService = {
       const slowestSpeed = slowest ? Math.max(10, finite(slowest[3], 30) / finite(scenario.roads?.[slowest[2]], 1)) : Infinity;
       return currentSpeed < slowestSpeed ? edge : slowest;
     }, null);
+
     let alternative = null;
     if (congestedEdge) {
       const excludedEdge = congestedEdge.slice(0, 2).sort().join(":");
       const alternatePath = shortestPath(originNode, destinationNode, scenario, excludedEdge);
       if (alternatePath.connected && alternatePath.edges.length) {
-        alternative = makeRoute(safeStart, hospital, scenario, excludedEdge, {}, "Alternate local route");
+        alternative = makeRoute(safeStart, hospital, scenario, excludedEdge, {}, "Alternate route");
       }
     }
 
-    let primary = directRoute;
-    let rerouted = false;
-    let rerouteReason = "";
-
-    if (this.autoReroute && directRoute.hasCongestion && alternative && alternative.eta < directRoute.eta) {
-      primary = { ...alternative, label: "Rerouted around congestion" };
-      alternative = { ...directRoute, label: "Congested corridor" };
-      rerouted = true;
-      rerouteReason = `Avoided congestion — saving ${Math.max(1, directRoute.eta - primary.eta)} min`;
-    }
-
+    const redirected = applyTrafficRedirect(directRoute, alternative, this.autoReroute);
     const recommended = finite(hospital.available, 0) > 0 && hospital.status !== "Full / Diverting";
-    return { primary, alternative, recommended, scenario, rerouted, rerouteReason, trafficMode: "offline" };
+    return {
+      primary: redirected.primary,
+      alternative: redirected.alternative,
+      recommended,
+      scenario,
+      rerouted: redirected.rerouted,
+      rerouteReason: redirected.rerouteReason,
+      trafficMode: "offline"
+    };
   },
 
   async calculateRoute(start, destination) {
@@ -492,38 +675,51 @@ export const mapService = {
     if (this.progressAnimation) cancelAnimationFrame(this.progressAnimation);
     this.progressAnimation = null;
 
-    let result = this.route(start, destination);
-    const safeStart = { lat: finite(start?.lat, STARTING_POINTS[0].lat), lng: finite(start?.lng, STARTING_POINTS[0].lng) };
+    const originInput = this.liveGpsPosition || start;
+    let result = this.route(originInput, destination);
+    const safeStart = { lat: finite(originInput?.lat, STARTING_POINTS[0].lat), lng: finite(originInput?.lng, STARTING_POINTS[0].lng) };
 
     if (this.effectiveMode() === "free" && destination) {
       try {
-        if (!(await this.loadLeaflet())) throw new Error("Leaflet could not be loaded");
+        if (!(await this.loadLeaflet())) throw new Error("Leaflet unavailable");
         if (request !== this.routeCalculationToken) return result;
         const routes = await this.requestOsrmRoute(safeStart, destination);
         if (request !== this.routeCalculationToken) return result;
-        const primary = { ...routes[0], label: "Fastest street route" };
-        const alternative = routes[1] ? { ...routes[1], label: "Alternate street route" } : null;
-        const rerouted = Boolean(this.autoReroute && primary.hasCongestion && alternative && alternative.eta < primary.eta);
 
+        let primary = { ...routes[0], label: "Primary route" };
+        let alternative = routes[1] ? { ...routes[1], label: "Alternate route" } : null;
+
+        const livePrimary = await this.fetchLiveTraffic(primary);
+        if (request !== this.routeCalculationToken) return result;
+        if (livePrimary) {
+          primary = livePrimary;
+          if (alternative) {
+            const liveAlt = await this.fetchLiveTraffic(alternative);
+            if (request !== this.routeCalculationToken) return result;
+            if (liveAlt) alternative = liveAlt;
+          }
+        }
+
+        const redirected = applyTrafficRedirect(primary, alternative, this.autoReroute);
         result = {
           ...result,
-          primary: rerouted ? { ...alternative, label: "Rerouted (Less Congestion)" } : primary,
-          alternative: rerouted ? { ...primary, label: "Congested route" } : alternative,
-          rerouted,
-          rerouteReason: rerouted
-            ? `Rerouted around ${result.scenario.label} (${Math.max(1, primary.eta - alternative.eta)} min faster)`
-            : "",
+          primary: redirected.primary,
+          alternative: redirected.alternative,
+          rerouted: redirected.rerouted,
+          rerouteReason: redirected.rerouteReason,
           source: "OSRM",
-          trafficMode: "live"
+          trafficMode: livePrimary ? "live" : "estimated"
         };
       } catch (error) {
         if (request !== this.routeCalculationToken) return result;
         this.forceOffline = true;
         result.source = "offline";
-        result.fallbackReason = error?.name === "AbortError" ? "OSRM request timed out" : (error?.message || "Routing fallback");
+        result.trafficMode = "offline";
+        result.fallbackReason = error?.message || "Offline fallback";
       }
     } else {
       result.source = "offline";
+      result.trafficMode = "offline";
     }
 
     if (request !== this.routeCalculationToken) return result;
@@ -537,11 +733,8 @@ export const mapService = {
       transportStatus: this.getTransportStatus(0)
     };
 
-    if (this.leafletMap) {
-      this.drawLeafletRoute();
-    } else if (this.canvas) {
-      this.drawCanvas();
-    }
+    if (this.leafletMap) this.drawLeafletRoute();
+    else if (this.canvas) this.drawCanvas();
 
     return result;
   },
@@ -549,47 +742,47 @@ export const mapService = {
   renderLeaflet(container, options = {}) {
     const L = window.L;
     this.canvas = null;
-    const scenario = localTrafficScenario();
-    const trafficBadge = this.currentNavigation?.trafficMode === "live" ? "Live Traffic Active" : "Offline Estimate";
+    const mode = this.currentNavigation?.trafficMode;
+    const trafficBadge = mode === "live" ? "Live Traffic" : mode === "estimated" ? "Traffic Estimate" : "Offline";
     const rerouteBanner = this.currentNavigation?.rerouted
-      ? `<div class="reroute-pill">Rerouted · ${escapeHTML(this.currentNavigation.rerouteReason)}</div>`
+      ? `<span class="reroute-pill">${escapeHTML(this.currentNavigation.rerouteReason)}</span>`
       : "";
 
-    container.innerHTML = `<div class="leaflet-map" role="application" aria-label="Valenzuela City street map"></div>
+    container.innerHTML = `<div class="leaflet-map" role="application" aria-label="Map"></div>
       <div class="map-top-bar">
-        <span class="map-chip">CareRoute Nav · Valenzuela</span>
         <span class="map-chip traffic-status">${trafficBadge}</span>
         ${rerouteBanner}
       </div>
-      <button type="button" class="map-recenter" aria-label="Re-center map">Re-center</button>
-      ${this.trafficEnabled ? '<div class="traffic-key"><span><i class="traffic-dot smooth"></i>Smooth</span><span><i class="traffic-dot moderate"></i>Moderate</span><span><i class="traffic-dot heavy"></i>Heavy</span></div>' : ""}`;
+      <button type="button" class="map-recenter" aria-label="Re-center map">Re-center</button>`;
 
     const mapElement = container.querySelector(".leaflet-map");
-    const initial = options.start || this.currentNavigation?.start || { lat: 14.7011, lng: 120.983 };
+    const initial = this.liveGpsPosition || options.start || this.currentNavigation?.start || { lat: 14.7011, lng: 120.983 };
     this.leafletMap = L.map(mapElement, { scrollWheelZoom: true, zoomControl: false }).setView([initial.lat, initial.lng], 13);
     L.control.zoom({ position: "bottomleft" }).addTo(this.leafletMap);
     container.querySelector(".map-recenter").addEventListener("click", () => this.recenter());
 
     const activeMap = this.leafletMap;
     this.vehicleMarker = null;
+    this.gpsAccuracyCircle = null;
     this.visualProgress = finite(this.visualProgress ?? this.currentNavigation?.progress, 0);
 
     let tileErrors = 0;
-    const tiles = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+    const tiles = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19,
-      subdomains: "abcd",
-      attribution: "&copy; OpenStreetMap &copy; CARTO"
+      attribution: "&copy; OSM"
     });
 
     tiles.on("tileerror", () => {
       if (this.leafletMap !== activeMap) return;
       tileErrors += 1;
-      if (tileErrors >= 4) {
-        this.switchToOffline("Minimal basemap unavailable");
-      }
+      if (tileErrors >= 4) this.switchToOffline("Tiles unavailable");
     });
 
     tiles.addTo(activeMap);
+    const tilePane = activeMap.getPane("tilePane");
+    if (tilePane) {
+      tilePane.style.filter = "grayscale(0.88) contrast(0.92) brightness(1.06)";
+    }
 
     const hospitals = storageService.getHospitals();
     hospitals.forEach((hospital) => {
@@ -606,26 +799,12 @@ export const mapService = {
         title: hospital.name,
         alt: `${hospital.name}, ${hospital.status}`
       }).bindPopup(
-        `<strong>${escapeHTML(hospital.name)}</strong><br>${escapeHTML(hospital.status)} · ${finite(hospital.available, 0)}/${finite(hospital.total, 0)} ER beds`
+        `<strong>${escapeHTML(hospital.name)}</strong><br>${escapeHTML(hospital.status)} · ${finite(hospital.available, 0)}/${finite(hospital.total, 0)} beds`
       );
 
       marker.on("click", () => container.dispatchEvent(new CustomEvent("hospital:select", { detail: hospital })));
       marker.addTo(activeMap);
     });
-
-    if (this.trafficEnabled && Array.isArray(scenario.hotspots)) {
-      scenario.hotspots.forEach((spot) => {
-        L.circleMarker([finite(spot.lat, 14.7011), finite(spot.lng, 120.983)], {
-          radius: 10,
-          color: "#FFFFFF",
-          weight: 2,
-          fillColor: "#EF4444",
-          fillOpacity: 0.92
-        })
-          .bindTooltip(escapeHTML(spot.label), { permanent: false, direction: "top" })
-          .addTo(activeMap);
-      });
-    }
 
     this.leafletRouteLayers = [];
     this.drawLeafletRoute();
@@ -640,8 +819,6 @@ export const mapService = {
     this.leafletRouteLayers = [];
 
     const result = this.currentNavigation;
-    const scenario = localTrafficScenario();
-
     const addLine = (points, lineOptions) => {
       if (!Array.isArray(points) || points.length < 2) return null;
       const line = L.polyline(points.map((point) => [point.lat, point.lng]), lineOptions).addTo(map);
@@ -650,12 +827,12 @@ export const mapService = {
     };
 
     if (result?.alternative?.points?.length > 1) {
-      addLine(result.alternative.points, { color: "#64748B", weight: 5, opacity: 0.65, dashArray: "8 8" });
+      addLine(result.alternative.points, { color: "#64748B", weight: 4, opacity: 0.55, dashArray: "7 7" });
     }
 
     const route = result?.primary;
     if (route?.points?.length > 1) {
-      addLine(route.points, { color: "#0284C7", weight: 7, opacity: 0.85 });
+      addLine(route.points, { color: "#0284C7", weight: 6, opacity: 0.88 });
 
       if (this.trafficEnabled) {
         route.steps.forEach((step) => {
@@ -669,7 +846,7 @@ export const mapService = {
       if (bounds.isValid()) map.fitBounds(bounds.pad(0.14), { maxZoom: 15 });
     }
 
-    const start = route?.points?.[0] || result?.start || this.options?.start;
+    const start = this.liveGpsPosition || route?.points?.[0] || result?.start || this.options?.start;
     if (start) {
       const origin = L.circleMarker([finite(start.lat, 14.7011), finite(start.lng, 120.983)], {
         radius: 7,
@@ -678,7 +855,7 @@ export const mapService = {
         fillColor: "#0F172A",
         fillOpacity: 1
       })
-        .bindTooltip("Origin", { direction: "top" })
+        .bindTooltip(this.liveGpsPosition ? "Live GPS" : "Start", { direction: "top" })
         .addTo(map);
       this.leafletRouteLayers.push(origin);
     }
@@ -688,20 +865,18 @@ export const mapService = {
 
   renderOffline(container) {
     this.cleanupActiveMap();
-    const reason = this.currentNavigation?.fallbackReason;
+    const mode = this.currentNavigation?.trafficMode;
+    const trafficBadge = mode === "live" ? "Live Traffic" : mode === "estimated" ? "Traffic Estimate" : "Offline";
     const rerouteBanner = this.currentNavigation?.rerouted
-      ? `<div class="reroute-pill">Rerouted · ${escapeHTML(this.currentNavigation.rerouteReason)}</div>`
+      ? `<span class="reroute-pill">${escapeHTML(this.currentNavigation.rerouteReason)}</span>`
       : "";
 
-    const trafficBadge = this.currentNavigation?.trafficMode === "live" ? "Live Traffic Active" : "Offline Estimate";
-    container.innerHTML = `<canvas class="offline-canvas" aria-label="Valenzuela City navigation map"></canvas>
+    container.innerHTML = `<canvas class="offline-canvas" aria-label="Map"></canvas>
       <div class="map-top-bar">
-        <span class="map-chip">Offline Valenzuela Grid${reason ? ` · ${escapeHTML(reason)}` : ""}</span>
         <span class="map-chip traffic-status">${trafficBadge}</span>
         ${rerouteBanner}
       </div>
-      <button type="button" class="map-recenter" aria-label="Re-center map">Re-center</button>
-      ${this.trafficEnabled ? '<div class="traffic-key"><span><i class="traffic-dot smooth"></i>Smooth</span><span><i class="traffic-dot moderate"></i>Moderate</span><span><i class="traffic-dot heavy"></i>Heavy</span></div>' : ""}`;
+      <button type="button" class="map-recenter" aria-label="Re-center map">Re-center</button>`;
 
     const canvas = container.querySelector("canvas");
     this.canvas = canvas;
@@ -756,22 +931,13 @@ export const mapService = {
     ctx.fillStyle = "#F1F5F9";
     ctx.fillRect(0, 0, width, height);
 
-    for (let row = 0; row < 6; row++) {
-      for (let col = 0; col < 9; col++) {
-        const x = 22 + col * (width / 9);
-        const y = 24 + row * (height / 7);
-        ctx.fillStyle = (row + col) % 3 === 0 ? "#E2E8F0" : "#E8EEF5";
-        ctx.fillRect(x, y, width / 14, height / 16);
-      }
-    }
-
     EDGES.forEach(([a, b, road]) => {
       const p1 = this.project(NODES[a]);
       const p2 = this.project(NODES[b]);
       ctx.beginPath();
       ctx.moveTo(p1.x, p1.y);
       ctx.lineTo(p2.x, p2.y);
-      ctx.lineWidth = road === "MacArthur Highway" || road === "NLEX" ? 7 : 4;
+      ctx.lineWidth = road === "MacArthur Highway" || road === "NLEX" ? 6 : 4;
       ctx.strokeStyle = "#FFFFFF";
       ctx.stroke();
 
@@ -781,20 +947,10 @@ export const mapService = {
         ctx.moveTo(p1.x, p1.y);
         ctx.lineTo(p2.x, p2.y);
         ctx.lineWidth = factor > 1.45 ? 4 : 2.5;
-        ctx.strokeStyle = factor > 1.45 ? "#EF4444" : factor > 1.1 ? "#F59E0B" : "#10B981";
+        ctx.strokeStyle = factor > 1.45 ? "#EF4444" : factor > 1.15 ? "#F59E0B" : "#10B981";
         ctx.stroke();
       }
     });
-
-    ctx.fillStyle = "#475569";
-    ctx.font = "600 10px system-ui";
-    [
-      ["NLEX", 0.16, 0.16],
-      ["Paso de Blas", 0.30, 0.36],
-      ["Maysan Rd", 0.56, 0.22],
-      ["MacArthur Hwy", 0.72, 0.56],
-      ["Gov. I. Santiago St.", 0.34, 0.72]
-    ].forEach(([name, x, y]) => ctx.fillText(name, width * x, height * y));
 
     const route = this.currentNavigation;
     if (route?.alternative?.points?.length > 1) {
@@ -823,20 +979,6 @@ export const mapService = {
       ctx.stroke();
     }
 
-    if (this.trafficEnabled && Array.isArray(scenario.hotspots)) {
-      scenario.hotspots.forEach((spot) => {
-        const p = this.project(spot);
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 11, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(239, 68, 68, 0.22)";
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
-        ctx.fillStyle = "#EF4444";
-        ctx.fill();
-      });
-    }
-
     storageService.getHospitals().forEach((hospital) => {
       const p = this.project(hospital);
       ctx.beginPath();
@@ -846,31 +988,17 @@ export const mapService = {
       ctx.lineWidth = 2;
       ctx.strokeStyle = "#FFFFFF";
       ctx.stroke();
-
-      ctx.fillStyle = "#0F172A";
-      ctx.font = "600 9.5px system-ui";
-      ctx.fillText(hospital.code || hospital.name.split(" ")[0], p.x + 11, p.y + 3);
     });
 
-    const start = route?.primary?.points?.[0] || this.options?.start || STARTING_POINTS[0];
-    const origin = this.project(start);
-    ctx.beginPath();
-    ctx.arc(origin.x, origin.y, 8, 0, Math.PI * 2);
-    ctx.fillStyle = "#0F172A";
-    ctx.fill();
-    ctx.fillStyle = "#FFFFFF";
-    ctx.font = "700 9px system-ui";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("A", origin.x, origin.y + 0.5);
-    ctx.textAlign = "start";
-    ctx.textBaseline = "alphabetic";
-
-    if (route?.primary?.points?.length) {
-      const marker = this.positionAt(route.primary.points, this.visualProgress ?? route.progress ?? 0);
-      const p = this.project(marker);
+    const trackerPos = this.liveGpsPosition
+      ? this.liveGpsPosition
+      : route?.primary?.points?.length
+        ? this.positionAt(route.primary.points, this.visualProgress ?? route.progress ?? 0)
+        : null;
+    if (trackerPos) {
+      const p = this.project(trackerPos);
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+      ctx.arc(p.x, p.y, 8, 0, Math.PI * 2);
       ctx.fillStyle = "#0284C7";
       ctx.fill();
       ctx.lineWidth = 2;
@@ -921,9 +1049,15 @@ export const mapService = {
   },
 
   updateLeafletVehicle() {
+    if (!this.leafletMap || !window.L) return;
     const points = this.currentNavigation?.primary?.points;
-    if (!points?.length || !this.leafletMap) return;
-    const point = this.positionAt(points, this.visualProgress ?? this.currentNavigation.progress);
+    const point = this.liveGpsPosition
+      ? { lat: this.liveGpsPosition.lat, lng: this.liveGpsPosition.lng }
+      : points?.length
+        ? this.positionAt(points, this.visualProgress ?? this.currentNavigation.progress)
+        : null;
+    if (!point) return;
+
     if (!this.vehicleMarker) {
       this.vehicleMarker = window.L.circleMarker([point.lat, point.lng], {
         radius: 8,
@@ -931,10 +1065,25 @@ export const mapService = {
         weight: 2,
         fillColor: "#0284C7",
         fillOpacity: 1
-      }).bindTooltip("Live CareRoute vehicle");
+      }).bindTooltip("Vehicle");
       this.vehicleMarker.addTo(this.leafletMap);
     } else {
       this.vehicleMarker.setLatLng([point.lat, point.lng]);
+    }
+
+    if (this.liveGpsPosition) {
+      const radius = clamp(finite(this.liveGpsPosition.accuracy, 20), 10, 500);
+      if (!this.gpsAccuracyCircle) {
+        this.gpsAccuracyCircle = window.L.circle([point.lat, point.lng], {
+          radius,
+          color: "#0284C7",
+          weight: 1,
+          fillColor: "#0284C7",
+          fillOpacity: 0.12
+        }).addTo(this.leafletMap);
+      } else {
+        this.gpsAccuracyCircle.setLatLng([point.lat, point.lng]).setRadius(radius);
+      }
     }
   },
 
@@ -945,7 +1094,7 @@ export const mapService = {
         const bounds = window.L.latLngBounds(routePoints.map((point) => [point.lat, point.lng]));
         if (bounds.isValid()) this.leafletMap.flyToBounds(bounds.pad(0.14), { maxZoom: 15, duration: 0.8 });
       } else {
-        const point = this.currentNavigation?.start || this.options?.start || { lat: 14.7011, lng: 120.983 };
+        const point = this.liveGpsPosition || this.currentNavigation?.start || this.options?.start || { lat: 14.7011, lng: 120.983 };
         this.leafletMap.flyTo([point.lat, point.lng], 14, { duration: 0.8 });
       }
     } else if (this.canvas) {
@@ -961,8 +1110,7 @@ export const mapService = {
   setMode(mode) {
     this.mode = mode === "google" ? "free" : ["auto", "free", "offline"].includes(mode) ? mode : "auto";
     this.forceOffline = false;
-  },
-
+  }
 };
 
 window.addEventListener("resize", () => {

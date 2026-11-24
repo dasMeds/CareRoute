@@ -80,6 +80,20 @@ export function initRescue(app) {
       </div>`;
   }
 
+  function renderCurrentInstruction() {
+    const instruction = document.querySelector("#currentInstruction");
+    if (!instruction || !routeResult?.primary?.steps?.length) return;
+    const direction = routeResult.primary.steps[Math.min(stepIndex, routeResult.primary.steps.length - 1)];
+    const arrow = direction.maneuver.includes("left") ? "↰" : direction.maneuver.includes("right") ? "↱" : "↑";
+    instruction.innerHTML = `
+      <span class="maneuver-icon" aria-hidden="true">${arrow}</span>
+      <div>
+        <small>NEXT STEP</small>
+        <strong>${securityService.sanitize(direction.instruction)}</strong>
+        <small>${securityService.sanitize(direction.road)} · ${direction.distanceKm.toFixed(1)} km</small>
+      </div>`;
+  }
+
   function renderPanel() {
     const facilities = storageService.getHospitals();
     const acceptingRoutes = facilities
@@ -93,21 +107,19 @@ export function initRescue(app) {
       <div class="field"><label for="rescueDestination">Destination hospital</label>
         <select id="rescueDestination">${facilities.map((hospital) => `<option value="${hospital.id}" ${hospital.id === destination.id ? "selected" : ""}>${hospital.name} — ${hospital.available}/${hospital.total} beds · ${hospital.status}</option>`).join("")}</select>
       </div>
-      ${isFull ? `<div class="diversion-warning"><strong>DIVERSION ALERT</strong><br>${destination.name} is Full / Diverting. ${recommended && recommended.hospital.id !== destination.id ? `Nearest accepting recommendation: <button type="button" class="link-button" id="chooseRecommendation">${recommended.hospital.name} (${recommended.route.eta} min)</button>` : "No accepting alternatives are currently available."}</div>` : ""}
+      ${isFull ? `<div class="diversion-warning"><strong>DIVERSION ALERT</strong><br>${destination.name} is Full / Diverting. ${recommended && recommended.hospital.id !== destination.id ? `Nearest open facility: <button type="button" class="link-button" id="chooseRecommendation">${recommended.hospital.name} (${recommended.route.eta} min)</button>` : "No open alternatives."}</div>` : ""}
+      ${routeResult?.rerouted ? `<div class="reroute-pill" style="margin-top:10px">Redirected: ${securityService.sanitize(routeResult.rerouteReason)}</div>` : ""}
       ${routeResult ? `
         <div class="route-option recommended-route">
-          <div class="session-row"><strong>${routeResult.recommended ? "Primary recommended route" : "Route to selected facility (diverting)"}</strong><span class="status-badge ${routeResult.recommended ? "available" : "full"}">${routeResult.recommended ? "Accepting" : "Divert"}</span></div>
-          <div class="grid-3">
+          <div class="session-row"><strong>${securityService.sanitize(routeResult.primary.label || "Primary route")}</strong><span class="status-badge ${routeResult.recommended ? "available" : "full"}">${routeResult.recommended ? "Accepting" : "Divert"}</span></div>
+          <div class="grid-2" style="margin-top:8px">
             <div class="metric"><span>Distance</span><strong>${routeResult.primary.distanceKm.toFixed(1)} km</strong></div>
             <div class="metric"><span>ETA</span><strong>${routeResult.primary.eta} min</strong></div>
           </div>
-          <small>${routeResult.source === "OSRM" ? "OSRM street-following route duration estimate" : "Offline Valenzuela road-grid estimate"} · ${routeResult.scenario.label}</small>
         </div>
         ${routeResult.alternative ? `<div class="route-option alternative-route">
-          <div class="session-row"><strong>Alternative route</strong><span>${routeResult.alternative.distanceKm.toFixed(1)} km</span></div>
-          <p>${routeResult.alternative.eta} min · ETA ${routeResult.alternative.eta - routeResult.primary.eta >= 0 ? "+" : ""}${routeResult.alternative.eta - routeResult.primary.eta} min vs primary · ${securityService.sanitize(routeResult.alternative.label || "Alternative corridor")}</p>
+          <div class="session-row"><strong>${securityService.sanitize(routeResult.alternative.label || "Alternate route")}</strong><span>${routeResult.alternative.distanceKm.toFixed(1)} km · ${routeResult.alternative.eta} min</span></div>
         </div>` : ""}
-        <div class="traffic-note">${routeResult.source === "OSRM" ? "Traffic category uses returned OSRM route duration; the public OSRM service does not provide verified incidents. Only coordinates are sent." : "Offline traffic is estimated from time of day and local corridor telemetry."}</div>
         <div class="current-instruction" id="currentInstruction"></div>
         <ol class="step-list directions-list" id="directionsList">${routeResult.primary.steps.map((step, index) => `
           <li class="${index === stepIndex ? "current-step" : ""}" data-direction-step="${index}">
@@ -115,8 +127,11 @@ export function initRescue(app) {
             <span>${securityService.sanitize(step.instruction)}<small>${securityService.sanitize(step.road)} · ${step.distanceKm.toFixed(1)} km</small></span>
           </li>`).join("")}</ol>
         ${routeActions()}
-      ` : '<p class="notice">Calculating route across Valenzuela corridors…</p>'}
+      ` : '<p class="notice">Calculating route…</p>'}
     `;
+
+    renderCurrentInstruction();
+
     document.querySelector("#rescueDestination").addEventListener("change", (event) => {
       const selected = facilities.find((hospital) => hospital.id === event.target.value);
       if (!selected) return;
